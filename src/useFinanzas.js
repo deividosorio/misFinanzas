@@ -84,6 +84,11 @@ export function useFinanzas(familyId) {
     setAccs(as => as.filter(x => x.id !== id))
   }
 
+  const updateAcc = async (id, acc) => {
+    await supabase.from('accounts').update({ name: acc.name, owner: acc.owner, type: acc.type, color: acc.color }).eq('id', id)
+    setAccs(as => as.map(x => x.id === id ? { ...x, ...acc } : x))
+  }
+
   // Formas de pago
   const addPm = async (pm) => {
     const { data, error } = await supabase.from('payment_methods').insert({
@@ -96,6 +101,11 @@ export function useFinanzas(familyId) {
   const deletePm = async (id) => {
     await supabase.from('payment_methods').delete().eq('id', id)
     setPms(ps => ps.filter(x => x.id !== id))
+  }
+
+  const updatePm = async (id, pm) => {
+    await supabase.from('payment_methods').update({ name: pm.name, type: pm.type, last_four: pm.lastFour, color: pm.color, credit_limit: pm.limit }).eq('id', id)
+    setPms(ps => ps.map(x => x.id === id ? { ...x, ...pm } : x))
   }
 
   // Deudas
@@ -116,6 +126,11 @@ export function useFinanzas(familyId) {
   const updateDebtPaid = async (id, newPaid) => {
     await supabase.from('debts').update({ paid: newPaid }).eq('id', id)
     setDebts(ds => ds.map(x => x.id === id ? { ...x, paid: newPaid } : x))
+  }
+
+  const updateDebtSchedule = async (id, { frequency, monthlyPayment, schedule }) => {
+    await supabase.from('debts').update({ monthly_payment: monthlyPayment }).eq('id', id)
+    setDebts(ds => ds.map(x => x.id === id ? { ...x, monthlyPayment, frequency, schedule } : x))
   }
 
   // Pagos recurrentes
@@ -162,9 +177,9 @@ export function useFinanzas(familyId) {
   return {
     accs, pms, txns, debts, rec, goals, loading,
     addTxn, deleteTxn,
-    addAcc, deleteAcc,
-    addPm, deletePm,
-    addDebt, deleteDebt, updateDebtPaid,
+    addAcc, deleteAcc, updateAcc,
+    addPm, deletePm, updatePm,
+    addDebt, deleteDebt, updateDebtPaid, updateDebtSchedule,
     addRec, deleteRec, markRecPaid,
     addGoal, deleteGoal, depositGoal,
     reload: loadAll,

@@ -4,6 +4,9 @@ import { useFinanzas } from "./useFinanzas";
 import { useTheme } from "./useTheme";
 import { ImportCSV } from "./ImportCSV";
 import { ProfileModal } from "./ProfileModal";
+import { ColorPicker } from "./ColorPicker";
+import { CategoryManager, useCats } from "./CategoryManager";
+import { DebtSchedule } from "./DebtSchedule";
 
 // ── TRANSLATIONS ──────────────────────────────────────────────────────────────
 const T = {
@@ -40,7 +43,9 @@ const T = {
     filterView:"Filtrado por",logout:"Cerrar sesión",loading:"Cargando...",
     left:"Te queda",monthSummary:"Resumen del mes",profile:"Mi perfil",
     swipeHint:"← Desliza para eliminar",
-    cats:{salary:"Salario",freelance:"Freelance",investment:"Inversión",other_income:"Otro ingreso",
+    editAccount:"Editar cuenta",editPaymentMethod:"Editar forma de pago",
+    manageCategories:"Gestionar categorías",debtSchedule:"Calendario de pagos",
+    edit:"Editar",cats:{salary:"Salario",freelance:"Freelance",investment:"Inversión",other_income:"Otro ingreso",
       food:"Alimentación",housing:"Vivienda",transport:"Transporte",health:"Salud",
       entertainment:"Entret.",education:"Educación",clothing:"Ropa",other_expense:"Otro",
       emergency:"Emergencias",vacation:"Vacaciones",retirement:"Retiro",goal:"Meta",
@@ -79,7 +84,9 @@ const T = {
     filterView:"Filtered by",logout:"Sign out",loading:"Loading...",
     left:"You have left",monthSummary:"This month",profile:"My profile",
     swipeHint:"← Swipe to delete",
-    cats:{salary:"Salary",freelance:"Freelance",investment:"Investment",other_income:"Other income",
+    editAccount:"Edit account",editPaymentMethod:"Edit payment method",
+    manageCategories:"Manage categories",debtSchedule:"Payment schedule",
+    edit:"Edit",cats:{salary:"Salary",freelance:"Freelance",investment:"Investment",other_income:"Other income",
       food:"Food",housing:"Housing",transport:"Transport",health:"Health",
       entertainment:"Entertain.",education:"Education",clothing:"Clothing",other_expense:"Other",
       emergency:"Emergency",vacation:"Vacation",retirement:"Retirement",goal:"Goal",
@@ -118,7 +125,9 @@ const T = {
     filterView:"Filtré par",logout:"Déconnexion",loading:"Chargement...",
     left:"Il vous reste",monthSummary:"Ce mois-ci",profile:"Mon profil",
     swipeHint:"← Glisser pour supprimer",
-    cats:{salary:"Salaire",freelance:"Freelance",investment:"Investissement",other_income:"Autre revenu",
+    editAccount:"Modifier compte",editPaymentMethod:"Modifier mode de paiement",
+    manageCategories:"Gérer catégories",debtSchedule:"Calendrier de paiements",
+    edit:"Modifier",cats:{salary:"Salaire",freelance:"Freelance",investment:"Investissement",other_income:"Autre revenu",
       food:"Alimentation",housing:"Logement",transport:"Transport",health:"Santé",
       entertainment:"Divertiss.",education:"Éducation",clothing:"Vêtements",other_expense:"Autre",
       emergency:"Urgences",vacation:"Vacances",retirement:"Retraite",goal:"Objectif",
@@ -239,10 +248,12 @@ export default function App({ session, profile, familyId, onLogout }) {
   const [tab, setTab] = useState("dashboard");
   const { dark, toggle: toggleDark, th } = useTheme();
 
+  const [cats, setCats] = useCats();
+
   const {
     accs, pms, txns, debts, rec, goals, loading,
-    addTxn, deleteTxn, addAcc, deleteAcc, addPm, deletePm,
-    addDebt, deleteDebt, updateDebtPaid, addRec, deleteRec,
+    addTxn, deleteTxn, addAcc, deleteAcc, updateAcc, addPm, deletePm, updatePm,
+    addDebt, deleteDebt, updateDebtPaid, updateDebtSchedule, addRec, deleteRec,
     markRecPaid, addGoal, deleteGoal, depositGoal,
   } = useFinanzas(familyId);
 
@@ -253,7 +264,10 @@ export default function App({ session, profile, familyId, onLogout }) {
   const [af, setAf] = useState({ mode:"month", month:curMonth(), from:null, to:null });
   const [selAcc, setSelAcc] = useState(null);
   const [selPm, setSelPm] = useState(null);
-  const [forms, setForms] = useState({ tx:false, acc:false, pm:false, debt:false, recur:false, goal:false, import:false, profile:false });
+  const [forms, setForms] = useState({ tx:false, acc:false, pm:false, debt:false, recur:false, goal:false, import:false, profile:false, cats:false });
+  const [editingAcc, setEditingAcc] = useState(null);
+  const [editingPm, setEditingPm] = useState(null);
+  const [debtScheduleFor, setDebtScheduleFor] = useState(null);
   const [ftType, setFtType] = useState("all");
 
   const open = k => setForms(f => ({ ...f, [k]:true }));
@@ -262,6 +276,15 @@ export default function App({ session, profile, familyId, onLogout }) {
   const getP = id => pms.find(p => p.id === id);
   const allPM = [...accs.map(a => ({ ...a, kind:"acc" })), ...pms.map(p => ({ ...p, kind:"pm" }))];
 
+  // Build full cat list merging defaults with custom
+  const allCats = cats;
+  const getCatById = (id) => {
+    for (const type of ['income','expense','saving']) {
+      const found = (allCats[type]||[]).find(c => c.id === id);
+      if (found) return found;
+    }
+    return null;
+  };
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e) => {
@@ -703,6 +726,7 @@ export default function App({ session, profile, familyId, onLogout }) {
                     ))}
                   </div>
                   <div style={{display:"flex",gap:8}}>
+                    <button className="btn bg sm" style={{whiteSpace:"nowrap"}} onClick={()=>setDebtScheduleFor(d)}>📅 {t.debtSchedule}</button>
                     <input type="number" placeholder={`${fmt(d.monthlyPayment)}`} className="inp" id={`py-${d.id}`}/>
                     <button className="btn bs sm" style={{whiteSpace:"nowrap"}} onClick={()=>{
                       const el=document.getElementById(`py-${d.id}`);
@@ -822,34 +846,64 @@ export default function App({ session, profile, familyId, onLogout }) {
         {/* ── SETTINGS ── */}
         {tab==="settings" && (
           <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            {/* Accounts */}
             <div className="card">
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                 <div style={{fontFamily:"'Syne',sans-serif",fontSize:14,fontWeight:700,color:th.text}}>{t.accounts}</div>
-                <button className="btn bp sm" onClick={()=>open("acc")}>+ {t.addAccount}</button>
+                <button className="btn bp sm" onClick={()=>{setEditingAcc(null);open("acc");}}>+ {t.addAccount}</button>
               </div>
               {accs.length===0 && <div style={{color:th.text3,fontSize:12,padding:"10px 0"}}>{t.noAccounts}</div>}
               {accs.map(a=>(
                 <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${th.trBorder}`}}>
-                  <div style={{width:30,height:30,borderRadius:9,background:a.color+"18",display:"flex",alignItems:"center",justifyContent:"center",color:a.color,fontWeight:700,fontSize:13}}>{a.owner[0]}</div>
-                  <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:th.text}}>{a.name}</div><div style={{fontSize:11,color:th.text3}}>{t[a.type]||a.type} · {t.owner}: {a.owner}</div></div>
-                  <button className="btn bd sm" onClick={()=>deleteAcc(a.id)}>✕</button>
+                  <div style={{width:32,height:32,borderRadius:9,background:a.color+"18",display:"flex",alignItems:"center",justifyContent:"center",color:a.color,fontWeight:700,fontSize:13}}>{a.owner[0]}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:th.text}}>{a.name}</div>
+                    <div style={{fontSize:11,color:th.text3}}>{t[a.type]||a.type} · {t.owner}: {a.owner}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button className="btn bg sm" onClick={()=>{setEditingAcc(a);open("acc");}}>✏️</button>
+                    <button className="btn bd sm" onClick={()=>deleteAcc(a.id)}>✕</button>
+                  </div>
                 </div>
               ))}
             </div>
+
+            {/* Payment Methods */}
             <div className="card">
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                 <div style={{fontFamily:"'Syne',sans-serif",fontSize:14,fontWeight:700,color:th.text}}>{t.paymentMethods}</div>
-                <button className="btn bp sm" onClick={()=>open("pm")}>+ {t.addPaymentMethod}</button>
+                <button className="btn bp sm" onClick={()=>{setEditingPm(null);open("pm");}}>+ {t.addPaymentMethod}</button>
               </div>
               {pms.length===0 && <div style={{color:th.text3,fontSize:12,padding:"10px 0"}}>{t.noPaymentMethods}</div>}
               {pms.map(p=>(
                 <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${th.trBorder}`}}>
-                  <div style={{width:30,height:30,borderRadius:9,background:p.color+"18",display:"flex",alignItems:"center",justifyContent:"center",color:p.color,fontSize:14}}>💳</div>
-                  <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:th.text}}>{p.name}{p.lastFour&&<span style={{color:th.text3}}> ···{p.lastFour}</span>}</div><div style={{fontSize:11,color:th.text3}}>{t[p.type]||p.type}{p.limit?` · ${t.limit}: ${fmt(p.limit)}`:""}</div></div>
-                  <button className="btn bd sm" onClick={()=>deletePm(p.id)}>✕</button>
+                  <div style={{width:32,height:32,borderRadius:9,background:p.color+"18",display:"flex",alignItems:"center",justifyContent:"center",color:p.color,fontSize:14}}>💳</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:th.text}}>{p.name}{p.lastFour&&<span style={{color:th.text3}}> ···{p.lastFour}</span>}</div>
+                    <div style={{fontSize:11,color:th.text3}}>{t[p.type]||p.type}{p.limit?` · ${t.limit}: ${fmt(p.limit)}`:""}</div>
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button className="btn bg sm" onClick={()=>{setEditingPm(p);open("pm");}}>✏️</button>
+                    <button className="btn bd sm" onClick={()=>deletePm(p.id)}>✕</button>
+                  </div>
                 </div>
               ))}
             </div>
+
+            {/* Categories */}
+            <div className="card" style={{cursor:"pointer"}} onClick={()=>open("cats")}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontFamily:"'Syne',sans-serif",fontSize:14,fontWeight:700,color:th.text}}>🏷️ {t.manageCategories}</div>
+                  <div style={{fontSize:11,color:th.text3,marginTop:3}}>
+                    {(cats.income?.length||0) + (cats.expense?.length||0) + (cats.saving?.length||0)} categorías configuradas
+                  </div>
+                </div>
+                <span style={{color:"#4f7cff",fontSize:18}}>→</span>
+              </div>
+            </div>
+
+            {/* Session */}
             <div className="card">
               <div style={{fontFamily:"'Syne',sans-serif",fontSize:14,fontWeight:700,color:th.text,marginBottom:12}}>Sesión activa</div>
               <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
@@ -889,17 +943,20 @@ export default function App({ session, profile, familyId, onLogout }) {
       <button className="fab" onClick={()=>open("tx")}>+</button>
 
       {/* MODALS */}
-      {forms.tx && <TxForm t={t} accs={accs} pms={pms} th={th} onSave={async tx=>{await addTxn(tx);close("tx");}} onClose={()=>close("tx")}/>}
-      {forms.acc && <AccForm t={t} th={th} onSave={async a=>{await addAcc(a);close("acc");}} onClose={()=>close("acc")}/>}
-      {forms.pm && <PmForm t={t} th={th} onSave={async p=>{await addPm(p);close("pm");}} onClose={()=>close("pm")}/>}
+      {forms.tx && <TxForm t={t} accs={accs} pms={pms} cats={cats} th={th} onSave={async tx=>{await addTxn(tx);close("tx");}} onClose={()=>close("tx")}/>}
+      {forms.acc && <AccForm t={t} th={th} initial={editingAcc} onSave={async a=>{editingAcc?await updateAcc(editingAcc.id,a):await addAcc(a);close("acc");setEditingAcc(null);}} onClose={()=>{close("acc");setEditingAcc(null);}}/>}
+      {forms.pm && <PmForm t={t} th={th} initial={editingPm} onSave={async p=>{editingPm?await updatePm(editingPm.id,p):await addPm(p);close("pm");setEditingPm(null);}} onClose={()=>{close("pm");setEditingPm(null);}}/>}
       {forms.debt && <DebtForm t={t} th={th} onSave={async d=>{await addDebt(d);close("debt");}} onClose={()=>close("debt")}/>}
       {forms.recur && <RecurForm t={t} allPM={allPM} th={th} onSave={async r=>{await addRec(r);close("recur");}} onClose={()=>close("recur")}/>}
       {forms.goal && <GoalForm t={t} th={th} onSave={async g=>{await addGoal(g);close("goal");}} onClose={()=>close("goal")}/>}
       {forms.import && <ImportCSV t={t} accs={accs} pms={pms} th={th} onImport={addTxn} onClose={()=>close("import")}/>}
       {forms.profile && <ProfileModal session={session} profile={profile} dark={dark} onToggleDark={toggleDark} th={th} onClose={()=>close("profile")}/>}
+      {forms.cats && <CategoryManager cats={cats} setCats={setCats} th={th} onClose={()=>close("cats")}/>}
+      {debtScheduleFor && <DebtSchedule debt={debtScheduleFor} th={th} onSave={async(upd)=>{await updateDebtSchedule(debtScheduleFor.id,upd);}} onClose={()=>setDebtScheduleFor(null)}/>}
     </div>
   );
 }
+
 
 // ── MODAL HELPERS ─────────────────────────────────────────────────────────────
 function M({title,children,onClose,th}){
@@ -915,45 +972,122 @@ function M({title,children,onClose,th}){
 function Row({label,children}){return(<div><div className="lbl">{label}</div>{children}</div>);}
 function Btns({t,onSave,onClose,th}){return(<div style={{display:"flex",gap:8,marginTop:10}}><button className="btn bg" style={{flex:1}} onClick={onClose}>{t.cancel}</button><button className="btn bp" style={{flex:2}} onClick={onSave}>{t.save}</button></div>);}
 
-function TxForm({t,accs,pms,th,onSave,onClose}){
-  const [f,setF]=useState({type:"expense",category:"food",description:"",amount:"",date:toDay(),accId:accs[0]?.id||"",pmId:""});
-  const cats=f.type==="income"?INCOME_CATS:f.type==="expense"?EXPENSE_CATS:SAVING_CATS;
-  const set=(k,v)=>setF(p=>({...p,[k]:v,...(k==="type"?{category:v==="income"?"salary":v==="expense"?"food":"emergency"}:{})}));
+// ── TX FORM with category grid + visual account picker ────────────────────────
+function TxForm({t,accs,pms,cats,th,onSave,onClose}){
+  const firstIncomeCat=(cats.income||[])[0];
+  const firstExpenseCat=(cats.expense||[])[0];
+  const firstSavingCat=(cats.saving||[])[0];
+  const [f,setF]=useState({
+    type:"expense",
+    category:firstExpenseCat?.id||"food",
+    description:"",amount:"",date:toDay(),
+    accId:"",pmId:""
+  });
+
+  const handleType=(tp)=>{
+    const first=(cats[tp]||[])[0];
+    setF(p=>({...p,type:tp,category:first?.id||"",pmId:""}));
+  };
+
+  const typeCats=(cats[f.type]||[]);
+
+  // Unified list: savings accounts first, then cards for expenses
+  const payAccs=[
+    ...accs.map(a=>({...a,kind:"acc",icon:"⬤",subtitle:a.owner})),
+    ...pms.filter(p=>["creditCard","debitCard"].includes(p.type)).map(p=>({...p,kind:"pm",icon:"💳",subtitle:p.lastFour?`···${p.lastFour}`:(t[p.type]||p.type)})),
+  ];
+
+  const selItemId=f.pmId||f.accId;
+
+  const selectPayment=(item)=>{
+    if(item.kind==="pm") setF(p=>({...p,pmId:item.id,accId:""}));
+    else setF(p=>({...p,accId:item.id,pmId:""}));
+  };
+
   return(<M title={t.addTransaction} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
-    <Row label={t.type}><div style={{display:"flex",gap:5,background:th.hoverBg,borderRadius:10,padding:4}}>{["income","expense","saving"].map(tp=><button key={tp} className="btn sm" style={{flex:1,background:f.type===tp?th.card:"transparent",color:f.type===tp?"#4f7cff":th.text2,fontWeight:f.type===tp?700:500,border:"none",boxShadow:f.type===tp?th.shadow:"none"}} onClick={()=>set("type",tp)}>{t[tp]}</button>)}</div></Row>
-    <Row label={t.category}><select className="inp" value={f.category} onChange={e=>set("category",e.target.value)}>{cats.map(c=><option key={c} value={c}>{t.cats[c]}</option>)}</select></Row>
-    <Row label={t.account}><select className="inp" value={f.accId} onChange={e=>set("accId",e.target.value)}><option value="">—</option>{accs.map(a=><option key={a.id} value={a.id}>{a.name} ({a.owner})</option>)}</select></Row>
-    {f.type==="expense"&&<Row label={t.paymentMethod}><select className="inp" value={f.pmId} onChange={e=>set("pmId",e.target.value)}><option value="">—</option>{pms.map(p=><option key={p.id} value={p.id}>{p.name}{p.lastFour?` ···${p.lastFour}`:""}</option>)}</select></Row>}
-    <Row label={t.description}><input className="inp" value={f.description} onChange={e=>set("description",e.target.value)} placeholder="ej: Supermercado"/></Row>
+
+    {/* Type toggle */}
+    <Row label={t.type}><div style={{display:"flex",gap:5,background:th.hoverBg,borderRadius:10,padding:4}}>
+      {["income","expense","saving"].map(tp=>(
+        <button key={tp} className="btn sm" style={{flex:1,background:f.type===tp?th.card:"transparent",color:f.type===tp?"#4f7cff":th.text2,fontWeight:f.type===tp?700:500,border:"none",boxShadow:f.type===tp?th.shadow:"none",transition:"all .15s"}} onClick={()=>handleType(tp)}>
+          {t[tp]}
+        </button>
+      ))}
+    </div></Row>
+
+    {/* Category visual grid */}
+    <Row label={t.category}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(80px,1fr))",gap:6,maxHeight:200,overflowY:"auto"}}>
+        {typeCats.map(c=>(
+          <div key={c.id} onClick={()=>setF(p=>({...p,category:c.id}))}
+            style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"8px 4px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${f.category===c.id?c.color:th.border}`,background:f.category===c.id?c.color+"18":th.subcard,transition:"all .12s"}}>
+            <span style={{fontSize:18}}>{c.icon}</span>
+            <span style={{fontSize:9,fontWeight:600,color:f.category===c.id?c.color:th.text2,textAlign:"center",lineHeight:1.2,wordBreak:"break-word"}}>{c.label}</span>
+          </div>
+        ))}
+        {typeCats.length===0&&<div style={{color:th.text3,fontSize:12,padding:8,gridColumn:"1/-1"}}>Sin categorías. Ve a Configuración → Categorías.</div>}
+      </div>
+    </Row>
+
+    {/* Account / card visual picker */}
+    <Row label={`${t.account} / ${t.paymentMethod}`}>
+      <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:160,overflowY:"auto"}}>
+        {payAccs.map(item=>{
+          const isSelected=selItemId===item.id;
+          return(
+            <div key={item.id} onClick={()=>selectPayment(item)}
+              style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,cursor:"pointer",border:`1.5px solid ${isSelected?item.color:th.border}`,background:isSelected?item.color+"14":th.subcard,transition:"all .12s"}}>
+              <span style={{fontSize:15,color:item.color}}>{item.icon}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:600,color:isSelected?item.color:th.text}}>{item.name}</div>
+                <div style={{fontSize:10,color:th.text3}}>{item.subtitle}</div>
+              </div>
+              {isSelected&&<span style={{color:item.color,fontWeight:700,fontSize:14}}>✓</span>}
+            </div>
+          );
+        })}
+        {payAccs.length===0&&<div style={{color:th.text3,fontSize:12,padding:8}}>Sin cuentas. Ve a Configuración para agregar.</div>}
+      </div>
+    </Row>
+
+    <Row label={t.description}><input className="inp" value={f.description} onChange={e=>setF(p=>({...p,description:e.target.value}))} placeholder="ej: Supermercado IGA" autoFocus/></Row>
     <div className="g2">
-      <Row label={`${t.amount} (CAD $)`}><input type="number" className="inp" value={f.amount} onChange={e=>set("amount",e.target.value)} placeholder="0"/></Row>
-      <Row label={t.date}><input type="date" className="inp" value={f.date} onChange={e=>set("date",e.target.value)}/></Row>
+      <Row label={`${t.amount} (CAD $)`}><input type="number" className="inp" value={f.amount} onChange={e=>setF(p=>({...p,amount:e.target.value}))} placeholder="0"/></Row>
+      <Row label={t.date}><input type="date" className="inp" value={f.date} onChange={e=>setF(p=>({...p,date:e.target.value}))}/></Row>
     </div>
-    <Btns t={t} th={th} onSave={()=>{if(f.description&&f.amount)onSave({...f,amount:parseFloat(f.amount)});}} onClose={onClose}/>
+    <Btns t={t} th={th} onSave={()=>{if(f.description&&f.amount&&f.category)onSave({...f,amount:parseFloat(f.amount)});}} onClose={onClose}/>
   </div></M>);
 }
 
-function AccForm({t,th,onSave,onClose}){
-  const [f,setF]=useState({name:"",owner:"",type:"savingsAccount",color:"#4f7cff"});
-  return(<M title={`+ ${t.addAccount}`} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
+// ── ACC FORM with ColorPicker + edit support ──────────────────────────────────
+function AccForm({t,th,initial,onSave,onClose}){
+  const [f,setF]=useState({name:initial?.name||"",owner:initial?.owner||"",type:initial?.type||"savingsAccount",color:initial?.color||"#4f7cff"});
+  const isEdit=!!initial;
+  return(<M title={isEdit?`✏️ Editar cuenta`:`+ ${t.addAccount}`} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
     <Row label={t.accountName}><input className="inp" value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="TD Savings"/></Row>
     <Row label={t.accountOwner}><input className="inp" value={f.owner} onChange={e=>setF(p=>({...p,owner:e.target.value}))} placeholder="Deivid"/></Row>
-    <Row label={t.type}><select className="inp" value={f.type} onChange={e=>setF(p=>({...p,type:e.target.value}))}>{["savingsAccount","checkingAccount","creditLine"].map(tp=><option key={tp} value={tp}>{t[tp]}</option>)}</select></Row>
-    <Row label={t.color}><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{ACC_COLORS.map(c=><div key={c} onClick={()=>setF(p=>({...p,color:c}))} style={{width:28,height:28,borderRadius:8,background:c,cursor:"pointer",border:f.color===c?"3px solid #1a1d2e":"3px solid transparent"}}/>)}</div></Row>
+    <Row label={t.type}><select className="inp" value={f.type} onChange={e=>setF(p=>({...p,type:e.target.value}))}>
+      {["savingsAccount","checkingAccount","creditLine"].map(tp=><option key={tp} value={tp}>{t[tp]}</option>)}
+    </select></Row>
+    <Row label={t.color}><ColorPicker value={f.color} onChange={c=>setF(p=>({...p,color:c}))} th={th}/></Row>
     <Btns t={t} th={th} onSave={()=>{if(f.name&&f.owner)onSave(f);}} onClose={onClose}/>
   </div></M>);
 }
 
-function PmForm({t,th,onSave,onClose}){
-  const [f,setF]=useState({name:"",type:"creditCard",lastFour:"",limit:"",color:"#f43f5e"});
-  return(<M title={`+ ${t.addPaymentMethod}`} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
+// ── PM FORM with ColorPicker + edit support ───────────────────────────────────
+function PmForm({t,th,initial,onSave,onClose}){
+  const [f,setF]=useState({name:initial?.name||"",type:initial?.type||"creditCard",lastFour:initial?.lastFour||"",limit:initial?.limit||"",color:initial?.color||"#f43f5e"});
+  const isEdit=!!initial;
+  return(<M title={isEdit?`✏️ Editar forma de pago`:`+ ${t.addPaymentMethod}`} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
     <Row label={t.paymentMethodName}><input className="inp" value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="TD Visa"/></Row>
-    <Row label={t.paymentMethodType}><select className="inp" value={f.type} onChange={e=>setF(p=>({...p,type:e.target.value}))}>{["creditCard","debitCard","creditLine","cash","transfer"].map(tp=><option key={tp} value={tp}>{t[tp]}</option>)}</select></Row>
+    <Row label={t.paymentMethodType}><select className="inp" value={f.type} onChange={e=>setF(p=>({...p,type:e.target.value}))}>
+      {["creditCard","debitCard","creditLine","cash","transfer"].map(tp=><option key={tp} value={tp}>{t[tp]}</option>)}
+    </select></Row>
     {["creditCard","debitCard"].includes(f.type)&&<div className="g2">
       <Row label={t.lastFour}><input className="inp" maxLength={4} value={f.lastFour} onChange={e=>setF(p=>({...p,lastFour:e.target.value}))} placeholder="4521"/></Row>
       <Row label={`${t.limit} (CAD)`}><input type="number" className="inp" value={f.limit} onChange={e=>setF(p=>({...p,limit:e.target.value}))}/></Row>
     </div>}
-    <Row label={t.color}><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{ACC_COLORS.map(c=><div key={c} onClick={()=>setF(p=>({...p,color:c}))} style={{width:28,height:28,borderRadius:8,background:c,cursor:"pointer",border:f.color===c?"3px solid #1a1d2e":"3px solid transparent"}}/>)}</div></Row>
+    <Row label={t.color}><ColorPicker value={f.color} onChange={c=>setF(p=>({...p,color:c}))} th={th}/></Row>
     <Btns t={t} th={th} onSave={()=>{if(f.name)onSave({...f,limit:parseFloat(f.limit)||undefined});}} onClose={onClose}/>
   </div></M>);
 }
@@ -961,7 +1095,7 @@ function PmForm({t,th,onSave,onClose}){
 function DebtForm({t,th,onSave,onClose}){
   const [f,setF]=useState({name:"",totalDebt:"",paid:"0",monthlyPayment:"",interestRate:"",startDate:toDay()});
   return(<M title={`+ ${t.addDebt}`} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
-    <Row label={t.debtName}><input className="inp" value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="Hipoteca / Auto"/></Row>
+    <Row label={t.debtName}><input className="inp" value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="Hipoteca / Auto Honda"/></Row>
     <div className="g2">
       <Row label={`${t.totalDebt} ($)`}><input type="number" className="inp" value={f.totalDebt} onChange={e=>setF(p=>({...p,totalDebt:e.target.value}))}/></Row>
       <Row label={`${t.paidAmount} ($)`}><input type="number" className="inp" value={f.paid} onChange={e=>setF(p=>({...p,paid:e.target.value}))}/></Row>
@@ -969,20 +1103,31 @@ function DebtForm({t,th,onSave,onClose}){
       <Row label={t.interestRate}><input type="number" className="inp" value={f.interestRate} onChange={e=>setF(p=>({...p,interestRate:e.target.value}))} placeholder="4.5"/></Row>
     </div>
     <Row label={t.startDate}><input type="date" className="inp" value={f.startDate} onChange={e=>setF(p=>({...p,startDate:e.target.value}))}/></Row>
-    <Btns t={t} th={th} onSave={()=>{if(f.name&&f.totalDebt)onSave({...f,totalDebt:parseFloat(f.totalDebt),paid:parseFloat(f.paid||0),monthlyPayment:parseFloat(f.monthlyPayment),interestRate:parseFloat(f.interestRate)});}} onClose={onClose}/>
+    <div style={{fontSize:11,color:"#4f7cff",background:"#eff3ff",borderRadius:8,padding:"8px 10px"}}>
+      💡 Después de crear la deuda, usa 📅 para configurar el calendario de pagos personalizado
+    </div>
+    <Btns t={t} th={th} onSave={()=>{if(f.name&&f.totalDebt)onSave({...f,totalDebt:parseFloat(f.totalDebt),paid:parseFloat(f.paid||0),monthlyPayment:parseFloat(f.monthlyPayment||0),interestRate:parseFloat(f.interestRate||0)});}} onClose={onClose}/>
   </div></M>);
 }
 
 function RecurForm({t,allPM,th,onSave,onClose}){
   const [f,setF]=useState({name:"",amount:"",frequency:"monthly",category:"utilities",pmId:allPM[0]?.id||"",nextDue:toDay()});
+  const EXPENSE_CATS_STATIC=["food","housing","transport","health","entertainment","education","clothing","utilities","insurance","mortgage","car","other_expense"];
+  const CAT_LABELS_ES={food:"Alimentación",housing:"Vivienda",transport:"Transporte",health:"Salud",entertainment:"Entretenimiento",education:"Educación",clothing:"Ropa",utilities:"Servicios",insurance:"Seguros",mortgage:"Hipoteca",car:"Auto",other_expense:"Otro gasto"};
   return(<M title={`+ ${t.addRecurring}`} onClose={onClose} th={th}><div style={{display:"flex",flexDirection:"column",gap:13}}>
     <Row label={t.recurringName}><input className="inp" value={f.name} onChange={e=>setF(p=>({...p,name:e.target.value}))} placeholder="Hydro-Québec"/></Row>
     <div className="g2">
       <Row label={`${t.recurringAmount} ($)`}><input type="number" className="inp" value={f.amount} onChange={e=>setF(p=>({...p,amount:e.target.value}))}/></Row>
-      <Row label={t.recurringFrequency}><select className="inp" value={f.frequency} onChange={e=>setF(p=>({...p,frequency:e.target.value}))}>{["monthly","biweekly","weekly","yearly"].map(fr=><option key={fr} value={fr}>{t[fr]}</option>)}</select></Row>
+      <Row label={t.recurringFrequency}><select className="inp" value={f.frequency} onChange={e=>setF(p=>({...p,frequency:e.target.value}))}>
+        {["monthly","biweekly","weekly","yearly"].map(fr=><option key={fr} value={fr}>{t[fr]}</option>)}
+      </select></Row>
     </div>
-    <Row label={t.category}><select className="inp" value={f.category} onChange={e=>setF(p=>({...p,category:e.target.value}))}>{EXPENSE_CATS.map(c=><option key={c} value={c}>{t.cats[c]}</option>)}</select></Row>
-    <Row label={`${t.paymentMethod} / ${t.account}`}><select className="inp" value={f.pmId} onChange={e=>setF(p=>({...p,pmId:e.target.value}))}>{allPM.map(m=><option key={m.id} value={m.id}>{m.name}{m.owner?` (${m.owner})`:""}{m.lastFour?` ···${m.lastFour}`:""}</option>)}</select></Row>
+    <Row label={t.category}><select className="inp" value={f.category} onChange={e=>setF(p=>({...p,category:e.target.value}))}>
+      {EXPENSE_CATS_STATIC.map(c=><option key={c} value={c}>{CAT_LABELS_ES[c]||c}</option>)}
+    </select></Row>
+    <Row label={`${t.paymentMethod} / ${t.account}`}><select className="inp" value={f.pmId} onChange={e=>setF(p=>({...p,pmId:e.target.value}))}>
+      {allPM.map(m=><option key={m.id} value={m.id}>{m.name}{m.owner?` (${m.owner})`:""}{m.lastFour?` ···${m.lastFour}`:""}</option>)}
+    </select></Row>
     <Row label={t.nextDue}><input type="date" className="inp" value={f.nextDue} onChange={e=>setF(p=>({...p,nextDue:e.target.value}))}/></Row>
     <Btns t={t} th={th} onSave={()=>{if(f.name&&f.amount)onSave({...f,amount:parseFloat(f.amount)});}} onClose={onClose}/>
   </div></M>);
