@@ -48,3 +48,25 @@ mifinanza/
 1. Regístrate tú primero → crea una familia → copia el UUID
 2. Tu esposa se registra → "Unirme a familia" → pega el UUID
 3. ¡Comparten todos los datos en tiempo real!
+
+
+# MiFinanza v7 💰
+
+## Nuevas funcionalidades v7
+
+- ✅ **Editar movimientos** — botón ✏️ en cada transacción
+- ✅ **Editar deudas** — botón ✏️ + frecuencia de pago en el formulario
+- ✅ **Editar pagos recurrentes** — botón ✏️ en cada recurrente
+- ✅ **Editar metas de ahorro** — botón ✏️ + fecha límite con cálculo mensual
+- ✅ **Monto fijo / variable** — los recurrentes pueden tener monto fijo o variable (se pide al marcar pagado)
+- ✅ **Movimiento automático** al marcar recurrente como pagado
+- ✅ **Categorías con orden** — arrastra para reordenar, aparecen en formularios de movimientos, deudas y recurrentes
+- ✅ **Presupuestos**, **resumen semanal**, **split de gastos**, **metas con plazo**
+
+## Migración de BD (si vienes de v5/v6)
+Ejecuta el bloque al final de `supabase-schema.sql` en el SQL Editor de Supabase.
+
+## Instalación
+```bash
+npm install && npm run dev
+```

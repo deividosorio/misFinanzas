@@ -164,3 +164,17 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_user();
+
+-- ══════════════════════════════════════════════════════════════
+-- MIGRATION v7 — Run this in Supabase SQL Editor if upgrading
+-- from a previous version
+-- ══════════════════════════════════════════════════════════════
+
+-- Add frequency to debts
+ALTER TABLE debts ADD COLUMN IF NOT EXISTS frequency text DEFAULT 'monthly';
+
+-- Add amount_type to recurring_payments (fixed/variable)
+ALTER TABLE recurring_payments ADD COLUMN IF NOT EXISTS amount_type text DEFAULT 'fixed';
+
+-- Add deadline to savings_goals
+ALTER TABLE savings_goals ADD COLUMN IF NOT EXISTS deadline date;

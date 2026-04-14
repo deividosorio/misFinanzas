@@ -8,6 +8,3 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <AppRoot />
   </React.StrictMode>
 )
-
-import { registerSW } from 'virtual:pwa-register'
-registerSW()
