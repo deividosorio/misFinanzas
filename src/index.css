@@ -1,111 +1,203 @@
+/* src/index.css
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PROPÓSITO: Estilos globales de la aplicación.
+ *
+ * Contiene:
+ *   1. Variables CSS (design tokens) — paleta de colores, tipografía, radios
+ *   2. Reset CSS — elimina márgenes/paddings por defecto del browser
+ *   3. Estilos base — body, scrollbar, tipografía
+ *   4. Clases de utilidad — grids, flex, helpers reutilizables
+ *   5. Animaciones globales
+ *   6. Breakpoints responsivos
+ *
+ * CONVENCIÓN: Las variables CSS se definen en :root para ser accesibles
+ * en cualquier componente via var(--nombre).
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/* ── 1. DESIGN TOKENS (variables CSS) ───────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cabinet+Grotesk:wght@400;500;700;800;900&family=Instrument+Sans:wght@400;500;600&display=swap');
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  /* Fondos — de más oscuro a más claro */
+  --bg:       #080a10; /* fondo principal de toda la app */
+  --surface:  #0e1118; /* header, sidebar, nav */
+  --card:     #111520; /* tarjetas de contenido */
+  --border:   #1a2030; /* bordes sutiles */
+  --border2:  #242840; /* bordes más visibles */
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  /* Texto */
+  --text:     #eef0ff; /* texto principal */
+  --muted:    #5a6180; /* texto secundario / etiquetas */
+  --muted2:   #2a3050; /* fondo de barras de progreso vacías */
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Colores de acento — semánticos */
+  --blue:     #4f7cff; /* acción principal, cuentas */
+  --green:    #2dd4a0; /* ingresos, éxito, activos */
+  --red:      #ff6b6b; /* gastos, error, pasivos */
+  --yellow:   #fbbf24; /* advertencias, alerts */
+  --purple:   #a78bfa; /* ahorros, patrimonio */
+  --pink:     #f472b6; /* ropa, categorías secundarias */
+  --orange:   #fb923c; /* vivienda, hipoteca */
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* Tipografía */
+  --font-display: 'Cabinet Grotesk', sans-serif; /* títulos, números grandes, logo */
+  --font-body:    'Instrument Sans', sans-serif;  /* texto normal, etiquetas, botones */
+
+  /* Radios de borde */
+  --radius:    14px; /* tarjetas, modales */
+  --radius-sm:  9px; /* botones, inputs */
+  --radius-xs:  6px; /* badges, chips pequeños */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+/* ── 2. RESET CSS ───────────────────────────────────────────────────────────── */
+/* Elimina comportamientos inconsistentes entre navegadores */
+*, *::before, *::after {
+  box-sizing: border-box; /* incluye padding/border en el ancho */
+  margin: 0;
+  padding: 0;
+}
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+/* ── 3. ESTILOS BASE ─────────────────────────────────────────────────────────── */
+html {
+  font-size: 14px; /* base para rem — 1rem = 14px */
 }
 
 body {
-  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased; /* texto más nítido en macOS/iOS */
+  -moz-osx-font-smoothing: grayscale;
 }
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+/* Scrollbar personalizada — solo en navegadores WebKit (Chrome, Safari, Edge) */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── 4. CLASES DE TIPOGRAFÍA ─────────────────────────────────────────────────── */
+/* Usadas directamente en JSX como className="h1", etc. */
+
+.h1 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+.h2 {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
+.h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+/* mono: para números financieros — usa la fuente display en weight bold */
+.mono {
+  font-family: var(--font-display);
+  font-weight: 800;
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* lbl: etiqueta de campo o sección — todo en mayúsculas, pequeño */
+.lbl {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.muted { color: var(--muted); }
+
+/* ── 5. CLASES DE LAYOUT (utilidades de grilla y flex) ──────────────────────── */
+
+/* Flex básico */
+.flex     { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.items-center   { align-items: center; }
+.justify-between { justify-content: space-between; }
+
+/* Gaps */
+.gap-4  { gap: 4px; }
+.gap-8  { gap: 8px; }
+.gap-12 { gap: 12px; }
+.gap-14 { gap: 14px; }
+.gap-20 { gap: 20px; }
+
+/* Grillas responsivas — colapsan en mobile */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+
+/* ── 6. UTILIDADES GENERALES ─────────────────────────────────────────────────── */
+
+/* Separador horizontal */
+.sep {
+  height: 1px;
+  background: var(--border);
+  margin: 14px 0;
+}
+
+/* Barra de progreso — contenedor */
+.pb {
+  background: var(--muted2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+/* Barra de progreso — relleno (el ancho se controla vía style en JS) */
+.pf {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); /* animación suave al cargar */
+}
+
+/* ── 7. ANIMACIONES ──────────────────────────────────────────────────────────── */
+
+/* slide-in: usada en cada cambio de página para una entrada suave */
+.slide-in {
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* pulse: usada en textos de "Cargando..." */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* float: usada en el emoji del Kids dashboard */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+
+/* ── 8. RESPONSIVE ───────────────────────────────────────────────────────────── */
+
+/* Tablet (≤ 768px) */
+@media (max-width: 768px) {
+  /* Grillas de 3 y 4 columnas colapsan a 2 */
+  .g3, .g4 { grid-template-columns: 1fr 1fr; }
+
+  /* Elementos marcados como "solo desktop" se ocultan */
+  .hide-mobile { display: none !important; }
+}
+
+/* Mobile pequeño (≤ 480px) */
+@media (max-width: 480px) {
+  /* Todas las grillas colapsan a 1 columna */
+  .g2, .g3, .g4 { grid-template-columns: 1fr; }
 }
