@@ -39,35 +39,27 @@ import Kids from './pages/Kids'
 import Statements from './pages/Statements'
 import Family from './pages/Family'
 import Admin from './pages/Admin'
-import Auth from './pages/Auth'
 
-// Modales (todos los formularios de la app)
+// Pantallas de autenticación y onboarding
+import Auth, { FamilySetupScreen, PendingScreen } from './pages/Auth'
+
+// Modales de creación (new records)
 import {
-  TxModal,
-  AccModal,
-  PmModal,
-  DebtModal,
-  RecurringModal,
-  GoalModal,
-  KidGoalModal,
+  TxModal, AccModal, PmModal, DebtModal,
+  RecurringModal, GoalModal, KidGoalModal,
   ImportCSVModal,
 } from './pages/Modals'
 
-// ── AppInner — Lógica de routing (tiene acceso al contexto) ───────────────────
-// Se separa de App para poder usar useApp() (que requiere estar dentro del Provider)
+// ── AppInner — tiene acceso al contexto (useApp) ──────────────────────────────
 function AppInner() {
   const {
-    session,
-    authLoading,
-    isDemoMode,
-    tab,
-    modal,
-    isKid,
-    t,
+    session, profile, family,
+    authLoading, isDemoMode,
+    tab, modal,
+    isKid, t,
   } = useApp()
 
-  // ── Estado de carga inicial ────────────────────────────────────────────────
-  // Mientras Supabase verifica la sesión existente (milisegundos)
+  // ── 1. CARGANDO SESIÓN ─────────────────────────────────────────────────────
   if (authLoading) {
     return (
       <div style={{
@@ -76,78 +68,94 @@ function AppInner() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 16,
       }}>
-        <style>{`@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:.4; } }`}</style>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: 24,
-            fontWeight: 900,
-            background: 'linear-gradient(135deg,#4f7cff,#a78bfa)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-          }}>
-            {t.appName}
-          </div>
-          <div style={{
-            color: 'var(--muted)',
-            fontSize: 13,
-            marginTop: 8,
-            animation: 'pulse 1.5s infinite',
-          }}>
-            {t.loading}
-          </div>
+        <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 28,
+          fontWeight: 900,
+          background: 'linear-gradient(135deg, #4f7cff, #a78bfa)',
+          WebkitBackgroundClip: 'text',
+          WebkitTextFillColor: 'transparent',
+        }}>
+          MiFinanza
+        </div>
+        <div style={{
+          color: 'var(--muted)',
+          fontSize: 13,
+          animation: 'pulse 1.5s infinite',
+        }}>
+          {t.loading}
         </div>
       </div>
     )
   }
 
-  // ── Sin sesión → mostrar Auth ──────────────────────────────────────────────
-  // Solo si Supabase está configurado. En modo demo siempre hay “sesión”.
+  // ── 2. SIN SESIÓN → pantallas de auth ────────────────────────────────────
   if (!isDemoMode && !session) {
-    console.log('isDemoMode:', isDemoMode, 'session:', session)
     return <Auth />
   }
 
-  // ── Vista de niño (Kids) ───────────────────────────────────────────────────
-  // Los niños ven una interfaz simplificada y gamificada, sin sidebar.
+  // ── 3. CON SESIÓN PERO SIN FAMILIA → configuración inicial ────────────────
+  // El usuario se registró pero aún no creó ni se unió a una familia
+  if (!isDemoMode && session && profile && !profile.family_id) {
+    return <FamilySetupScreen />
+  }
+
+  // ── 4. EN FAMILIA PERO PENDIENTE DE APROBACIÓN ────────────────────────────
+  // El usuario usó el código de invitación pero el admin aún no lo aprobó
+  if (!isDemoMode && session && profile && profile.family_id && profile.status === 'pending') {
+    return <PendingScreen />
+  }
+
+  // ── 5. VISTA DE NIÑO ──────────────────────────────────────────────────────
+  // Los niños ven solo su módulo de metas gamificado, sin sidebar
   if (isKid) {
     return (
       <div style={{ minHeight: '100vh' }}>
         <Header />
-        <main style={{ padding: '16px 12px', maxWidth: 500, margin: '0 auto' }}>
-          <Kids /> {/* sin prop parentView → vista del niño */}
+        <main style={{
+          padding: '16px 12px',
+          maxWidth: 500,
+          margin: '0 auto',
+          paddingBottom: 20,
+        }}>
+          <Kids />
         </main>
       </div>
     )
   }
 
-  // ── Mapa de tab → componente ───────────────────────────────────────────────
-  // Cada entrada es { tab_id: <Componente /> }
+  // ── 6. LAYOUT COMPLETO (adulto autenticado con familia activa) ────────────
+
+  // Mapa de tab → componente de página
   const PAGE_MAP = {
     dashboard: <Dashboard />,
     transactions: <Transactions />,
     debts: <Debts />,
     recurring: <Recurring />,
     savings: <Savings />,
-    kids: <Kids parentView />,   // parentView → vista de padres
+    kids: <Kids parentView />,
     statements: <Statements />,
     family: <Family />,
     admin: <Admin />,
   }
 
-  // ── Vista adulto: layout completo ─────────────────────────────────────────
+  // Tabs que muestran la FilterBar (con selector de período y cuenta)
+  const TABS_WITH_FILTER = ['dashboard', 'transactions', 'statements']
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
-
-      {/* Barra superior fija */}
+      {/* ── HEADER SUPERIOR (sticky) ── */}
       <Header />
 
-      {/* Área principal: sidebar + contenido */}
+      {/* ── ÁREA PRINCIPAL: sidebar + contenido ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-        {/* Sidebar de navegación (oculto en mobile) */}
+        {/* Sidebar de navegación — solo desktop */}
         <Sidebar />
 
         {/* Área de contenido scrolleable */}
@@ -155,17 +163,17 @@ function AppInner() {
           flex: 1,
           overflowY: 'auto',
           padding: '18px 16px',
-          maxWidth: 980,      // ancho máximo para pantallas grandes
+          maxWidth: 980,
           width: '100%',
-          margin: '0 auto', // centrado horizontal
-          paddingBottom: 80,       // espacio para BottomNav en mobile
+          margin: '0 auto',
+          paddingBottom: 80,  // espacio para BottomNav en mobile
         }}>
 
-          {/* Aviso de modo demo */}
+          {/* Banner modo demo */}
           {isDemoMode && <DemoBanner />}
 
-          {/* Barra de filtros (solo en páginas que la necesitan) */}
-          {['dashboard', 'transactions', 'statements'].includes(tab) && <FilterBar />}
+          {/* Filtros de período y cuenta (solo en tabs específicos) */}
+          {TABS_WITH_FILTER.includes(tab) && <FilterBar />}
 
           {/* Página activa con animación de entrada */}
           <div className="slide-in">
@@ -174,48 +182,46 @@ function AppInner() {
         </main>
       </div>
 
-      {/* Navegación inferior (solo visible en mobile) */}
+      {/* ── NAVEGACIÓN INFERIOR (solo mobile) ── */}
       <BottomNav />
 
-      {/* ── MODALES ────────────────────────────────────────────────────────── */}
-      {/* Solo se renderiza el modal que está abierto (modal !== null)        */}
-      {/* Se usa el valor de `modal` del contexto para decidir cuál mostrar  */}
+      {/* ── MODALES GLOBALES ─────────────────────────────────────────────────
+          Se renderizan aquí (fuera de las páginas) para garantizar z-index
+          correcto. El valor de `modal` en AppContext determina cuál está abierto.
+      ──────────────────────────────────────────────────────────────────────── */}
 
-      {/* Formulario de nueva transacción */}
+      {/* Nueva transacción */}
       {modal === 'tx' && <TxModal />}
 
-      {/* Formulario de nueva cuenta bancaria */}
+      {/* Nueva cuenta bancaria (solo admin) */}
       {modal === 'acc' && <AccModal />}
 
-      {/* Formulario de nueva forma de pago / tarjeta */}
+      {/* Nueva tarjeta / forma de pago (solo admin) */}
       {modal === 'pm' && <PmModal />}
 
-      {/* Formulario de nueva deuda */}
+      {/* Nueva deuda */}
       {modal === 'debt' && <DebtModal />}
 
-      {/* Formulario de nuevo pago recurrente */}
+      {/* Nuevo pago recurrente */}
       {modal === 'recurring' && <RecurringModal />}
 
-      {/* Formulario de nueva meta de ahorro (adultos) */}
+      {/* Nueva meta de ahorro (adultos) */}
       {modal === 'goal' && <GoalModal />}
 
-      {/* Formulario de nueva meta de ahorro (niños) */}
+      {/* Nueva meta de ahorro (niños) */}
       {modal === 'kidGoal' && <KidGoalModal />}
 
-      {/* Modal de importación de CSV */}
+      {/* Importar CSV */}
       {modal === 'importCSV' && <ImportCSVModal />}
     </div>
-
-
   )
 }
 
 // ── App — Componente raíz exportado ───────────────────────────────────────────
 /**
-
-- Envuelve AppInner en AppProvider para que useApp() funcione.
-- AppProvider no puede llamar a useApp() — por eso existe AppInner.
-  */
+ * Envuelve AppInner en AppProvider para que useApp() funcione.
+ * AppProvider no puede llamar a useApp() — por eso existe AppInner.
+ */
 export default function App() {
   return (
     <AppProvider>
