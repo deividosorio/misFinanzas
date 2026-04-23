@@ -1,0 +1,933 @@
+// src/context/AppContext.jsx
+// ─────────────────────────────────────────────────────────────────────────────
+// PROPÓSITO: Estado global de la aplicación — el corazón de MiFinanza.
+//
+// PATRÓN: React Context + Provider
+//   Todos los componentes acceden al estado y las funciones vía useApp().
+//   Elimina el prop-drilling (pasar props de padre a hijo a nieto).
+//
+// MODO DEMO vs PRODUCCIÓN:
+//   isDemoMode = !supabase (cuando no hay .env.local configurado)
+//   - Demo:       datos en memoria, mutaciones actualizan useState local
+//   - Producción: datos en Supabase, mutaciones llaman a funciones RPC
+//
+// AUTO-TRANSACCIONES (Regla de negocio crítica):
+//   Cuando un usuario paga una deuda, marca un recurrente o deposita
+//   en una meta, se crea automáticamente una transacción en el historial.
+//   En producción: los RPCs de Supabase hacen esto internamente.
+//   En demo: las mutaciones simulan el mismo comportamiento.
+//   Idempotencia: se verifica source_id + auto_source para evitar duplicados.
+//
+// GESTIÓN DE MIEMBROS:
+//   - status: pending → requiere aprobación del admin
+//   - status: active  → puede usar la app
+//   - status: suspended → bloqueado
+//   Solo owner y admin pueden cambiar el status de otros miembros.
+// ─────────────────────────────────────────────────────────────────────────────
+import {
+  createContext, useContext, useState,
+  useEffect, useCallback, useMemo,
+} from 'react'
+import { supabase } from '../lib/supabase'
+import T from '../lib/translations'
+import { thisMo, toDay } from '../lib/constants'
+
+// ── Datos de demostración ────────────────────────────────────────────────────
+// Se usan cuando no hay Supabase configurado (modo demo).
+// Representan una familia típica canadiense con hipoteca, autos y niños.
+
+const DEMO_PROFILE = {
+  id:           'demo-user-1',
+  display_name: 'Deivid',
+  email:        'deivid@mifinanza.ca',
+  family_id:    'demo-fam-1',
+  role:         'owner',
+  status:       'active',
+  is_kid:       false,
+  avatar_emoji: '👨',
+  avatar_color: '#4f7cff',
+  lang:         'es',
+  theme:        'dark',
+  onboarded:    true,
+  created_at:   '2025-01-15T10:00:00Z',
+}
+
+const DEMO_FAMILY = {
+  id:          'demo-fam-1',
+  name:        'Familia García',
+  plan:        'pro',
+  invite_code: 'garcia2025',
+  currency:    'CAD',
+  locale:      'es',
+}
+
+const DEMO_MEMBERS = [
+  {
+    id: 'demo-user-1', display_name:'Deivid', email:'deivid@mifinanza.ca',
+    role:'owner', status:'active', is_kid:false,
+    avatar_emoji:'👨', avatar_color:'#4f7cff',
+  },
+  {
+    id: 'demo-user-2', display_name:'Andrea', email:'andrea@mifinanza.ca',
+    role:'member', status:'active', is_kid:false,
+    avatar_emoji:'👩', avatar_color:'#e879f9',
+  },
+  {
+    id: 'demo-user-3', display_name:'Mateo', email:'',
+    role:'member', status:'active', is_kid:true,
+    avatar_emoji:'👦', avatar_color:'#2dd4a0',
+  },
+  {
+    id: 'demo-user-4', display_name:'Valeria', email:'',
+    role:'member', status:'pending', is_kid:false,  // pendiente de aprobación
+    avatar_emoji:'👧', avatar_color:'#fbbf24',
+  },
+]
+
+const DEMO_ACCOUNTS = [
+  { id:'acc-1', name:'TD Savings',  subtype:'savings',      color:'#4f7cff', owner_name:'Deivid', owner_profile:'demo-user-1', institution:'TD Bank',      balance:14200, total_income:32400, total_expense:18200, opening_balance:0, is_active:true },
+  { id:'acc-2', name:'RBC Savings', subtype:'savings',      color:'#e879f9', owner_name:'Andrea', owner_profile:'demo-user-2', institution:'RBC',          balance:8750,  total_income:21000, total_expense:12250, opening_balance:0, is_active:true },
+  { id:'acc-3', name:'TD Chequing', subtype:'checking',     color:'#2dd4a0', owner_name:'Familia',owner_profile:'demo-user-1', institution:'TD Bank',      balance:3820,  total_income:9000,  total_expense:5180,  opening_balance:0, is_active:true },
+  { id:'acc-4', name:'TD Visa',     subtype:'credit_card',  color:'#ff6b6b', owner_name:'Deivid', owner_profile:'demo-user-1', institution:'TD Bank',      balance:2340,  credit_limit:8000,  last_four:'4521',    opening_balance:0, is_active:true },
+  { id:'acc-5', name:'RBC MC',      subtype:'credit_card',  color:'#fbbf24', owner_name:'Andrea', owner_profile:'demo-user-2', institution:'RBC',          balance:890,   credit_limit:5000,  last_four:'8833',    opening_balance:0, is_active:true },
+]
+
+const DEMO_DEBTS = [
+  {
+    id:'d-1', name:'Hipoteca TD', category:'mortgage',
+    total_amount:320000, paid_amount:52000, monthly_payment:1850,
+    interest_rate:4.5, start_date:'2020-01-01', is_active:true, notes:'',
+    linked_account_id:'acc-3',
+  },
+  {
+    id:'d-2', name:'Auto Honda CR-V', category:'car',
+    total_amount:28000, paid_amount:14000, monthly_payment:520,
+    interest_rate:5.9, start_date:'2022-06-01', is_active:true, notes:'',
+    linked_account_id:'acc-3',
+  },
+]
+
+const DEMO_RECURRING = [
+  { id:'r-1', name:'Hipoteca TD',   amount:1850, frequency:'monthly', category:'mortgage',  account_id:'acc-3', next_due:'2025-06-01', is_active:true, notes:'' },
+  { id:'r-2', name:'Auto Honda',    amount:520,  frequency:'monthly', category:'car',       account_id:'acc-3', next_due:'2025-06-05', is_active:true, notes:'' },
+  { id:'r-3', name:'Hydro-Québec',  amount:110,  frequency:'monthly', category:'utilities', account_id:'acc-4', next_due:'2025-06-10', is_active:true, notes:'' },
+  { id:'r-4', name:'Bell Internet', amount:85,   frequency:'monthly', category:'utilities', account_id:'acc-4', next_due:'2025-06-15', is_active:true, notes:'' },
+  { id:'r-5', name:'Seguro auto',   amount:180,  frequency:'monthly', category:'insurance', account_id:'acc-4', next_due:'2025-06-20', is_active:true, notes:'' },
+]
+
+const DEMO_TXNS = [
+  { id:'t-1',  type:'income',  category:'salary',       description:'Salario Mayo — Deivid',   amount:5200, date:'2025-05-01', account_id:'acc-1', payment_account_id:null,  auto_source:null,         created_by:'demo-user-1' },
+  { id:'t-2',  type:'income',  category:'salary',       description:'Salario Mayo — Andrea',   amount:4200, date:'2025-05-01', account_id:'acc-2', payment_account_id:null,  auto_source:null,         created_by:'demo-user-2' },
+  { id:'t-3',  type:'expense', category:'food',         description:'IGA Supermercado',        amount:320,  date:'2025-05-03', account_id:'acc-3', payment_account_id:'acc-4', auto_source:null,       created_by:'demo-user-2' },
+  { id:'t-4',  type:'expense', category:'utilities',    description:'Hydro-Québec',            amount:110,  date:'2025-05-05', account_id:'acc-3', payment_account_id:'acc-4', auto_source:'recurring', source_id:'r-3', created_by:'demo-user-1' },
+  { id:'t-5',  type:'expense', category:'transport',    description:'Gasolina Shell',          amount:95,   date:'2025-05-07', account_id:'acc-1', payment_account_id:'acc-4', auto_source:null,       created_by:'demo-user-1' },
+  { id:'t-6',  type:'saving',  category:'goal',         description:'Ahorro: Vacaciones 2025', amount:400,  date:'2025-05-08', account_id:'acc-2', payment_account_id:null,  auto_source:'savings_deposit', source_id:'g-1', created_by:'demo-user-2' },
+  { id:'t-7',  type:'expense', category:'mortgage',     description:'Pago: Hipoteca TD',       amount:1850, date:'2025-05-01', account_id:'acc-3', payment_account_id:null,  auto_source:'debt_payment', source_id:'d-1', created_by:'demo-user-1' },
+  { id:'t-8',  type:'income',  category:'freelance',    description:'Proyecto web',            amount:1200, date:'2025-05-10', account_id:'acc-1', payment_account_id:null,  auto_source:null,         created_by:'demo-user-1' },
+  { id:'t-9',  type:'expense', category:'food',         description:'Costco',                  amount:380,  date:'2025-04-20', account_id:'acc-3', payment_account_id:'acc-4', auto_source:null,       created_by:'demo-user-1' },
+  { id:'t-10', type:'income',  category:'salary',       description:'Salario Abril — Deivid',  amount:5200, date:'2025-04-01', account_id:'acc-1', payment_account_id:null,  auto_source:null,         created_by:'demo-user-1' },
+]
+
+const DEMO_GOALS = [
+  { id:'g-1', name:'Vacaciones 2025', target_amount:3000, current_amount:700,  emoji:'✈️', color:'#4f7cff', status:'active', deadline:'', notes:'', owner_profile:'demo-user-1', account_id:'acc-2' },
+  { id:'g-2', name:'Fondo emergencias', target_amount:5000, current_amount:1800, emoji:'🛡️', color:'#2dd4a0', status:'active', deadline:'', notes:'', owner_profile:'demo-user-1', account_id:'acc-2' },
+  { id:'g-3', name:'Laptop nueva', target_amount:1500, current_amount:1500, emoji:'💻', color:'#a78bfa', status:'completed', deadline:'', notes:'', owner_profile:'demo-user-2', account_id:'acc-2' },
+]
+
+const DEMO_KIDS_GOALS = [
+  { id:'kg-1', kid_profile:'demo-user-3', kid_name:'Mateo',   name:'Nintendo Switch',    emoji:'🎮', color:'#818cf8', target_amount:350, current_amount:210, status:'active',    reward_text:'¡Vamos campeón!' },
+  { id:'kg-2', kid_profile:'demo-user-3', kid_name:'Mateo',   name:'Colección Pokémon',  emoji:'⭐', color:'#fbbf24', target_amount:120, current_amount:45,  status:'active',    reward_text:'¡Sigue así!'    },
+]
+
+const DEMO_SUMMARY = {
+  income:12400, expense:7820, saving:1200, balance:3380, savings_rate:9.7,
+  by_category:[
+    { category:'housing',       value:1800 },
+    { category:'food',          value:1240 },
+    { category:'mortgage',      value:1850 },
+    { category:'car',           value:520  },
+    { category:'utilities',     value:310  },
+    { category:'entertainment', value:290  },
+    { category:'transport',     value:280  },
+    { category:'health',        value:120  },
+    { category:'insurance',     value:180  },
+  ],
+  monthly_trend:[
+    { month:'2024-10', income:9800,  expense:5200, saving:900  },
+    { month:'2024-11', income:10200, expense:5800, saving:1000 },
+    { month:'2024-12', income:14200, expense:8200, saving:1400 },
+    { month:'2025-01', income:9600,  expense:4900, saving:1100 },
+    { month:'2025-02', income:10400, expense:5100, saving:1200 },
+    { month:'2025-03', income:10780, expense:4745, saving:1100 },
+    { month:'2025-04', income:11600, expense:7300, saving:1050 },
+    { month:'2025-05', income:12400, expense:7820, saving:1200 },
+  ],
+}
+
+const DEMO_NET_WORTH = { assets:26770, liabilities:282000, net:-255230 }
+
+// ── Contexto React ────────────────────────────────────────────────────────────
+const AppCtx = createContext({})
+
+/**
+ * useApp — Hook para acceder al contexto desde cualquier componente.
+ * @returns {object} Todo el estado y las funciones del contexto
+ */
+export const useApp = () => useContext(AppCtx)
+
+// ── Provider principal ────────────────────────────────────────────────────────
+export function AppProvider({ children }) {
+  const isDemoMode = !supabase
+
+  // ── Estado de autenticación ────────────────────────────────────────────────
+  const [session,     setSession]     = useState(isDemoMode ? { user:{ id:'demo-user-1', email:'deivid@mifinanza.ca' } } : null)
+  const [profile,     setProfile]     = useState(isDemoMode ? DEMO_PROFILE : null)
+  const [family,      setFamily]      = useState(isDemoMode ? DEMO_FAMILY  : null)
+  const [authLoading, setAuthLoading] = useState(!isDemoMode)
+
+  // ── Estado de datos financieros ────────────────────────────────────────────
+  const [accounts,  setAccounts]  = useState(isDemoMode ? DEMO_ACCOUNTS  : [])
+  const [debts,     setDebts]     = useState(isDemoMode ? DEMO_DEBTS      : [])
+  const [recurring, setRecurring] = useState(isDemoMode ? DEMO_RECURRING  : [])
+  const [txns,      setTxns]      = useState(isDemoMode ? DEMO_TXNS       : [])
+  const [goals,     setGoals]     = useState(isDemoMode ? DEMO_GOALS      : [])
+  const [kidsGoals, setKidsGoals] = useState(isDemoMode ? DEMO_KIDS_GOALS : [])
+  const [members,   setMembers]   = useState(isDemoMode ? DEMO_MEMBERS    : [])
+  const [summary,   setSummary]   = useState(isDemoMode ? DEMO_SUMMARY    : null)
+  const [netWorth,  setNetWorth]  = useState(isDemoMode ? DEMO_NET_WORTH  : null)
+  const [dataLoading, setDataLoading] = useState(false)
+
+  // ── Estado de UI ───────────────────────────────────────────────────────────
+  const [lang,       setLang]       = useState('es')
+  const [tab,        setTab]        = useState('dashboard')
+  const [filterType, setFilterType] = useState('all')
+
+  // Filtros de período
+  const [pMode,     setPMode]     = useState('month')
+  const [selMonth,  setSelMonth]  = useState(thisMo())
+  const [rFrom,     setRFrom]     = useState('2025-01-01')
+  const [rTo,       setRTo]       = useState(toDay())
+  const [af, setAf] = useState({ from: thisMo() + '-01', to: toDay() })
+
+  // Filtros de cuenta
+  const [selAcc, setSelAcc] = useState(null)
+  const [selPm,  setSelPm]  = useState(null)
+
+  // Modales: string con el nombre del modal activo, o null
+  const [modal, setModal] = useState(null)
+
+  // ── Derivados ──────────────────────────────────────────────────────────────
+  const t             = T[lang] || T.es
+  const isKid         = profile?.is_kid || false
+  const isOwner       = profile?.role === 'owner'
+  const isFamilyAdmin = ['owner', 'admin'].includes(profile?.role)
+  const kids          = members.filter(m => m.is_kid)
+  const pendingMembers = members.filter(m => m.status === 'pending')
+
+  // Separar cuentas bancarias de tarjetas de crédito
+  const bankAccounts = useMemo(() =>
+    accounts.filter(a => !['credit_card','debit_card','credit_line'].includes(a.subtype)),
+  [accounts])
+
+  const cards = useMemo(() =>
+    accounts.filter(a => ['credit_card','debit_card','credit_line'].includes(a.subtype)),
+  [accounts])
+
+  // Transacciones filtradas por período y cuenta (cálculo en cliente — inmediato)
+  const filteredTxns = useMemo(() => txns.filter(tx => {
+    if (tx.is_void) return false
+    const inPeriod = tx.date >= af.from && tx.date <= af.to
+    const inAcc    = !selAcc || tx.account_id === selAcc
+    const inCard   = !selPm  || tx.payment_account_id === selPm
+    return inPeriod && inAcc && inCard
+  }), [txns, af, selAcc, selPm])
+
+  // ── EFECTO: autenticación Supabase ─────────────────────────────────────────
+  useEffect(() => {
+    if (isDemoMode) return
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      if (session) loadProfile(session.user.id)
+      setAuthLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+      if (session) loadProfile(session.user.id)
+      else { setProfile(null); setFamily(null) }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [isDemoMode])
+
+  // ── Cargar perfil y familia ────────────────────────────────────────────────
+  const loadProfile = async (uid) => {
+    const { data } = await supabase.from('profiles').select('*').eq('id', uid).single()
+    if (data) {
+      setProfile(data)
+      setLang(data.lang || 'es')
+      if (data.family_id) {
+        const { data: fam } = await supabase.from('families').select('*').eq('id', data.family_id).single()
+        if (fam) setFamily(fam)
+      }
+    }
+  }
+
+  // ── Cargar todos los datos desde Supabase ──────────────────────────────────
+  const loadData = useCallback(async () => {
+    if (isDemoMode) return
+    if (!family?.id) return
+    setDataLoading(true)
+    const fid = family.id
+
+    try {
+      const [
+        { data: accsData },
+        { data: txnsData },
+        { data: debtsData },
+        { data: recData },
+        { data: goalsData },
+        { data: kgData },
+        { data: membersData },
+      ] = await Promise.all([
+        supabase.from('accounts').select('*').eq('family_id', fid).eq('is_active', true).order('created_at'),
+        supabase.from('transactions').select('*').eq('family_id', fid).eq('is_void', false).order('date', { ascending:false }).limit(500),
+        supabase.from('debts').select('*').eq('family_id', fid).eq('is_active', true),
+        supabase.from('recurring_payments').select('*').eq('family_id', fid).eq('is_active', true).order('next_due'),
+        supabase.from('savings_goals').select('*').eq('family_id', fid),
+        supabase.from('kids_goals').select('*').eq('family_id', fid),
+        supabase.from('profiles').select('*').eq('family_id', fid),
+      ])
+
+      if (accsData)    setAccounts(accsData)
+      if (txnsData)    setTxns(txnsData)
+      if (debtsData)   setDebts(debtsData)
+      if (recData)     setRecurring(recData)
+      if (goalsData)   setGoals(goalsData)
+      if (kgData)      setKidsGoals(kgData)
+      if (membersData) setMembers(membersData)
+
+      // Resumen del dashboard vía RPC (PostgreSQL calcula los totales)
+      const { data: sumData } = await supabase.rpc('rpc_dashboard_summary', {
+        p_from:       af.from,
+        p_to:         af.to,
+        p_account_id: selAcc || null,
+      })
+      if (sumData) setSummary(sumData)
+
+      const { data: nwData } = await supabase.rpc('rpc_net_worth')
+      if (nwData) setNetWorth(nwData)
+
+    } catch (err) {
+      console.error('[MiFinanza] loadData error:', err)
+    } finally {
+      setDataLoading(false)
+    }
+  }, [family?.id, af, selAcc, isDemoMode])
+
+  useEffect(() => {
+    if (family?.id) loadData()
+  }, [loadData])
+
+  // ── Aplicar filtro de período ──────────────────────────────────────────────
+  const applyFilter = () => {
+    setAf({
+      from: pMode === 'month' ? selMonth + '-01' : rFrom,
+      to:   pMode === 'month' ? selMonth + '-31' : rTo,
+    })
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MUTACIONES — Toda la lógica de negocio
+  // Cada función tiene rama demo (estado local) y producción (Supabase RPC)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── TRANSACCIONES ──────────────────────────────────────────────────────────
+
+  /**
+   * addTxn — Agrega una nueva transacción.
+   * En producción: llama a rpc_add_transaction
+   */
+  const addTxn = async (tx) => {
+    if (isDemoMode) {
+      const newTx = { ...tx, id:'t-'+Date.now(), auto_source:null, is_void:false, created_by:profile?.id }
+      setTxns(prev => [newTx, ...prev])
+      return { data:newTx, error:null }
+    }
+    const { data, error } = await supabase.rpc('rpc_add_transaction', {
+      p_type:               tx.type,
+      p_category:           tx.category,
+      p_description:        tx.description,
+      p_amount:             parseFloat(tx.amount),
+      p_date:               tx.date,
+      p_account_id:         tx.account_id          || null,
+      p_payment_account_id: tx.payment_account_id  || null,
+      p_notes:              tx.notes               || null,
+    })
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  /**
+   * editTxn — Edita una transacción existente.
+   * En producción: llama a rpc_update_transaction
+   */
+  const editTxn = async (id, changes) => {
+    if (isDemoMode) {
+      setTxns(prev => prev.map(tx =>
+        tx.id === id ? { ...tx, ...changes, amount:parseFloat(changes.amount||tx.amount) } : tx
+      ))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_update_transaction', {
+      p_txn_id:             id,
+      p_type:               changes.type               || null,
+      p_category:           changes.category           || null,
+      p_description:        changes.description        || null,
+      p_amount:             changes.amount ? parseFloat(changes.amount) : null,
+      p_date:               changes.date               || null,
+      p_account_id:         changes.account_id         || null,
+      p_payment_account_id: changes.payment_account_id || null,
+      p_notes:              changes.notes              || null,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  /**
+   * deleteTxn — Elimina o anula una transacción.
+   * Las transacciones automáticas se anulan (is_void=true), no se borran,
+   * para mantener la integridad del historial.
+   */
+  const deleteTxn = async (id) => {
+    const tx = txns.find(t => t.id === id)
+    if (isDemoMode) {
+      if (tx?.auto_source) {
+        // Anular en lugar de borrar (transacciones automáticas)
+        setTxns(prev => prev.map(t => t.id === id ? { ...t, is_void:true } : t))
+      } else {
+        setTxns(prev => prev.filter(t => t.id !== id))
+      }
+      return
+    }
+    if (tx?.auto_source) {
+      await supabase.from('transactions').update({ is_void:true }).eq('id', id)
+    } else {
+      await supabase.from('transactions').delete().eq('id', id)
+    }
+    await loadData()
+  }
+
+  // ── CUENTAS (solo admin/owner) ─────────────────────────────────────────────
+
+  /**
+   * addAccount — Crea una nueva cuenta bancaria o tarjeta.
+   * En producción: rpc_add_account (valida permisos de admin)
+   */
+  const addAccount = async (acc) => {
+    if (!isFamilyAdmin) return { error:new Error('Solo el administrador puede crear cuentas') }
+    if (isDemoMode) {
+      const newAcc = { ...acc, id:'acc-'+Date.now(), balance:acc.opening_balance||0, total_income:0, total_expense:0, is_active:true }
+      setAccounts(prev => [...prev, newAcc])
+      return { data:newAcc, error:null }
+    }
+    const { data, error } = await supabase.rpc('rpc_add_account', {
+      p_name:            acc.name,
+      p_nature:          acc.nature          || 'asset',
+      p_subtype:         acc.subtype,
+      p_owner_profile:   acc.owner_profile   || null,
+      p_color:           acc.color           || '#4f7cff',
+      p_institution:     acc.institution     || null,
+      p_last_four:       acc.last_four       || null,
+      p_credit_limit:    acc.credit_limit    ? parseFloat(acc.credit_limit) : null,
+      p_opening_balance: acc.opening_balance ? parseFloat(acc.opening_balance) : 0,
+      p_notes:           acc.notes           || null,
+    })
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  /**
+   * editAccount — Edita una cuenta existente.
+   */
+  const editAccount = async (id, changes) => {
+    if (!isFamilyAdmin) return { error:new Error('Sin permiso') }
+    if (isDemoMode) {
+      setAccounts(prev => prev.map(a =>
+        a.id === id ? { ...a, ...changes, credit_limit: changes.credit_limit ? parseFloat(changes.credit_limit) : a.credit_limit } : a
+      ))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_update_account', {
+      p_account_id:   id,
+      p_name:         changes.name         || null,
+      p_color:        changes.color        || null,
+      p_institution:  changes.institution  || null,
+      p_credit_limit: changes.credit_limit ? parseFloat(changes.credit_limit) : null,
+      p_notes:        changes.notes        || null,
+      p_is_active:    changes.is_active    ?? null,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  const deleteAccount = async (id) => {
+    if (!isFamilyAdmin) return
+    if (isDemoMode) { setAccounts(prev => prev.filter(a => a.id !== id)); return }
+    await supabase.from('accounts').update({ is_active:false }).eq('id', id)
+    await loadData()
+  }
+
+  // ── DEUDAS ─────────────────────────────────────────────────────────────────
+
+  /**
+   * payDebt — Registra un pago en una deuda.
+   * AUTO-TRANSACCIÓN: crea automáticamente un movimiento de tipo 'expense'.
+   * En producción: rpc_pay_debt hace todo atómicamente.
+   */
+  const payDebt = async (id, amount, date = toDay()) => {
+    const debt = debts.find(d => d.id === id)
+    if (!debt) return { error:new Error('Deuda no encontrada') }
+    if (amount <= 0) return { error:new Error('El monto debe ser mayor que cero') }
+
+    const newPaid = Math.min(debt.total_amount, debt.paid_amount + amount)
+
+    if (isDemoMode) {
+      // 1. Actualizar deuda
+      setDebts(prev => prev.map(d =>
+        d.id === id ? { ...d, paid_amount:newPaid, is_active: newPaid < d.total_amount } : d
+      ))
+      // 2. Crear transacción automática (idempotente: verificar si ya existe)
+      const alreadyExists = txns.some(tx =>
+        tx.source_id === id && tx.auto_source === 'debt_payment' && tx.date === date && tx.amount === amount
+      )
+      if (!alreadyExists) {
+        setTxns(prev => [{
+          id:                  'auto-debt-'+Date.now(),
+          type:                'expense',
+          category:            debt.category || 'mortgage',
+          description:         'Pago: ' + debt.name,
+          amount:              amount,
+          date:                date,
+          account_id:          debt.linked_account_id || null,
+          payment_account_id:  null,
+          auto_source:         'debt_payment',
+          source_id:           id,
+          is_void:             false,
+          created_by:          profile?.id,
+        }, ...prev])
+      }
+      return { data:{ paid_amount:newPaid }, error:null }
+    }
+
+    const { data, error } = await supabase.rpc('rpc_pay_debt', {
+      p_debt_id:    id,
+      p_amount:     amount,
+      p_date:       date,
+      p_account_id: debt.linked_account_id || null,
+    })
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  /**
+   * editDebt — Edita los datos de una deuda.
+   */
+  const editDebt = async (id, changes) => {
+    if (isDemoMode) {
+      setDebts(prev => prev.map(d =>
+        d.id === id ? { ...d, ...changes,
+          total_amount:    changes.total_amount    ? parseFloat(changes.total_amount)    : d.total_amount,
+          monthly_payment: changes.monthly_payment ? parseFloat(changes.monthly_payment) : d.monthly_payment,
+          interest_rate:   changes.interest_rate   ? parseFloat(changes.interest_rate)   : d.interest_rate,
+        } : d
+      ))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_update_debt', {
+      p_debt_id:         id,
+      p_name:            changes.name             || null,
+      p_total_amount:    changes.total_amount     ? parseFloat(changes.total_amount)    : null,
+      p_monthly_payment: changes.monthly_payment  ? parseFloat(changes.monthly_payment) : null,
+      p_interest_rate:   changes.interest_rate    ? parseFloat(changes.interest_rate)   : null,
+      p_start_date:      changes.start_date       || null,
+      p_notes:           changes.notes            || null,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  const addDebt = async (debt) => {
+    if (isDemoMode) {
+      const newDebt = { ...debt, id:'d-'+Date.now(), paid_amount:parseFloat(debt.paid_amount||0),
+        total_amount:parseFloat(debt.total_amount), monthly_payment:parseFloat(debt.monthly_payment||0),
+        interest_rate:parseFloat(debt.interest_rate||0), is_active:true }
+      setDebts(prev => [...prev, newDebt])
+      return { data:newDebt, error:null }
+    }
+    const { data, error } = await supabase.rpc('rpc_add_account', {
+      p_name:'placeholder', p_nature:'liability', p_subtype:'mortgage',
+    }) // En producción usar función específica para deudas
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  const deleteDebt = async (id) => {
+    if (isDemoMode) { setDebts(prev => prev.filter(d => d.id !== id)); return }
+    await supabase.from('debts').update({ is_active:false }).eq('id', id)
+    await loadData()
+  }
+
+  // ── PAGOS RECURRENTES ──────────────────────────────────────────────────────
+
+  /**
+   * markRecPaid — Marca un pago recurrente como pagado.
+   * AUTO-TRANSACCIÓN: crea un movimiento de tipo 'expense'.
+   * Avanza next_due al siguiente período según la frecuencia.
+   */
+  const markRecPaid = async (id, date = toDay()) => {
+    const rec = recurring.find(r => r.id === id)
+    if (!rec) return { error:new Error('Pago recurrente no encontrado') }
+
+    if (isDemoMode) {
+      // 1. Calcular próxima fecha
+      const nextDate = new Date(rec.next_due)
+      const freqMap = { weekly:7, biweekly:14, monthly:1, yearly:12 }
+      if (rec.frequency === 'monthly' || rec.frequency === 'yearly') {
+        nextDate.setMonth(nextDate.getMonth() + (rec.frequency === 'yearly' ? 12 : 1))
+      } else {
+        nextDate.setDate(nextDate.getDate() + freqMap[rec.frequency])
+      }
+
+      // 2. Actualizar recurrente
+      setRecurring(prev => prev.map(r =>
+        r.id === id ? { ...r, next_due:nextDate.toISOString().slice(0,10) } : r
+      ))
+
+      // 3. Crear transacción automática (idempotente)
+      const alreadyExists = txns.some(tx =>
+        tx.source_id === id && tx.auto_source === 'recurring' && tx.date === date
+      )
+      if (!alreadyExists) {
+        setTxns(prev => [{
+          id:                 'auto-rec-'+Date.now(),
+          type:               'expense',
+          category:           rec.category,
+          description:        rec.name,
+          amount:             rec.amount,
+          date:               date,
+          account_id:         rec.account_id || null,
+          payment_account_id: null,
+          auto_source:        'recurring',
+          source_id:          id,
+          is_void:            false,
+          created_by:         profile?.id,
+        }, ...prev])
+      }
+      return { data:{ next_due:nextDate.toISOString().slice(0,10) }, error:null }
+    }
+
+    const { data, error } = await supabase.rpc('rpc_mark_recurring_paid', {
+      p_rec_id: id,
+      p_date:   date,
+    })
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  /**
+   * editRecurring — Edita un pago recurrente existente.
+   */
+  const editRecurring = async (id, changes) => {
+    if (isDemoMode) {
+      setRecurring(prev => prev.map(r =>
+        r.id === id ? { ...r, ...changes, amount: changes.amount ? parseFloat(changes.amount) : r.amount } : r
+      ))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_update_recurring', {
+      p_rec_id:    id,
+      p_name:      changes.name      || null,
+      p_amount:    changes.amount    ? parseFloat(changes.amount) : null,
+      p_frequency: changes.frequency || null,
+      p_category:  changes.category  || null,
+      p_next_due:  changes.next_due  || null,
+      p_notes:     changes.notes     || null,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  const addRecurring = async (rec) => {
+    if (isDemoMode) {
+      const newRec = { ...rec, id:'r-'+Date.now(), amount:parseFloat(rec.amount), is_active:true }
+      setRecurring(prev => [...prev, newRec])
+      return { data:newRec, error:null }
+    }
+    const { data, error } = await supabase.from('recurring_payments').insert({
+      family_id:  family.id,
+      created_by: profile?.id,
+      ...rec,
+      amount: parseFloat(rec.amount),
+    }).select().single()
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  const deleteRecurring = async (id) => {
+    if (isDemoMode) { setRecurring(prev => prev.filter(r => r.id !== id)); return }
+    await supabase.from('recurring_payments').update({ is_active:false }).eq('id', id)
+    await loadData()
+  }
+
+  // ── METAS DE AHORRO ────────────────────────────────────────────────────────
+
+  /**
+   * depositGoal — Deposita en una meta de ahorro.
+   * AUTO-TRANSACCIÓN: crea un movimiento de tipo 'saving'.
+   */
+  const depositGoal = async (id, amount, date = toDay()) => {
+    const goal = goals.find(g => g.id === id)
+    if (!goal) return { error:new Error('Meta no encontrada') }
+    if (amount <= 0) return { error:new Error('Monto debe ser mayor que cero') }
+
+    const newAmount = Math.min(goal.target_amount, goal.current_amount + amount)
+
+    if (isDemoMode) {
+      setGoals(prev => prev.map(g =>
+        g.id === id ? { ...g, current_amount:newAmount, status: newAmount >= g.target_amount ? 'completed' : g.status } : g
+      ))
+      setTxns(prev => [{
+        id:                 'auto-save-'+Date.now(),
+        type:               'saving',
+        category:           'goal',
+        description:        'Ahorro: ' + goal.name,
+        amount:             amount,
+        date:               date,
+        account_id:         goal.account_id || null,
+        payment_account_id: null,
+        auto_source:        'savings_deposit',
+        source_id:          id,
+        is_void:            false,
+        created_by:         profile?.id,
+      }, ...prev])
+      return { data:{ current_amount:newAmount }, error:null }
+    }
+
+    const { data, error } = await supabase.rpc('rpc_deposit_savings_goal', {
+      p_goal_id:    id,
+      p_amount:     amount,
+      p_date:       date,
+      p_account_id: goal.account_id || null,
+    })
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  /**
+   * editGoal — Edita una meta de ahorro.
+   */
+  const editGoal = async (id, changes) => {
+    if (isDemoMode) {
+      setGoals(prev => prev.map(g =>
+        g.id === id ? { ...g, ...changes,
+          target_amount: changes.target_amount ? parseFloat(changes.target_amount) : g.target_amount,
+        } : g
+      ))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_update_savings_goal', {
+      p_goal_id:       id,
+      p_name:          changes.name          || null,
+      p_target_amount: changes.target_amount ? parseFloat(changes.target_amount) : null,
+      p_emoji:         changes.emoji         || null,
+      p_color:         changes.color         || null,
+      p_deadline:      changes.deadline      || null,
+      p_notes:         changes.notes         || null,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  const addGoal = async (goal) => {
+    if (isDemoMode) {
+      const newGoal = { ...goal, id:'g-'+Date.now(), current_amount:0, status:'active' }
+      setGoals(prev => [...prev, newGoal])
+      return { data:newGoal, error:null }
+    }
+    const { data, error } = await supabase.from('savings_goals').insert({
+      family_id:     family.id,
+      owner_profile: profile?.id,
+      ...goal,
+      target_amount: parseFloat(goal.target_amount),
+    }).select().single()
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  const deleteGoal = async (id) => {
+    if (isDemoMode) { setGoals(prev => prev.filter(g => g.id !== id)); return }
+    await supabase.from('savings_goals').delete().eq('id', id)
+    await loadData()
+  }
+
+  // ── METAS KIDS ─────────────────────────────────────────────────────────────
+
+  const depositKidGoal = async (id, amount) => {
+    if (isDemoMode) {
+      setKidsGoals(prev => prev.map(g => {
+        if (g.id !== id) return g
+        const newAmt = Math.min(g.target_amount, g.current_amount + amount)
+        return { ...g, current_amount:newAmt, status: newAmt >= g.target_amount ? 'completed' : g.status }
+      }))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_kids_deposit', { p_goal_id:id, p_amount:amount })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  const addKidGoal = async (goal) => {
+    if (isDemoMode) {
+      const newGoal = { ...goal, id:'kg-'+Date.now(), current_amount:0, status:'active' }
+      setKidsGoals(prev => [...prev, newGoal])
+      return { data:newGoal, error:null }
+    }
+    const { data, error } = await supabase.from('kids_goals').insert({
+      family_id: family.id, ...goal, target_amount:parseFloat(goal.target_amount),
+    }).select().single()
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  // ── GESTIÓN DE MIEMBROS (solo admin/owner) ─────────────────────────────────
+
+  /**
+   * setMemberStatus — Aprueba o suspende un miembro.
+   * pending → active (aprobar)
+   * active → suspended (suspender)
+   */
+  const setMemberStatus = async (memberId, status) => {
+    if (!isFamilyAdmin) return { error:new Error('Sin permiso') }
+
+    if (isDemoMode) {
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, status } : m))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_set_member_status', {
+      p_member_id: memberId,
+      p_status:    status,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  /**
+   * setMemberRole — Cambia el rol de un miembro (solo owner).
+   */
+  const setMemberRole = async (memberId, role) => {
+    if (profile?.role !== 'owner') return { error:new Error('Solo el propietario') }
+
+    if (isDemoMode) {
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m))
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_set_member_role', {
+      p_member_id: memberId,
+      p_role:      role,
+    })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  // ── PERFIL ─────────────────────────────────────────────────────────────────
+
+  /**
+   * updateProfile — Actualiza preferencias del perfil propio.
+   */
+  const updateProfile = async (changes) => {
+    if (isDemoMode) {
+      setProfile(prev => ({ ...prev, ...changes }))
+      if (changes.lang) setLang(changes.lang)
+      return { error:null }
+    }
+    const { error } = await supabase.rpc('rpc_update_profile', {
+      p_display_name: changes.display_name || null,
+      p_avatar_emoji: changes.avatar_emoji || null,
+      p_avatar_color: changes.avatar_color || null,
+      p_lang:         changes.lang         || null,
+      p_theme:        changes.theme        || null,
+    })
+    if (!error) {
+      setProfile(prev => ({ ...prev, ...changes }))
+      if (changes.lang) setLang(changes.lang)
+    }
+    return { error }
+  }
+
+  // ── AUTENTICACIÓN ──────────────────────────────────────────────────────────
+
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+    setSession(null); setProfile(null); setFamily(null)
+  }
+
+  // ── HELPERS DE BÚSQUEDA ────────────────────────────────────────────────────
+  const getAccount = (id) => accounts.find(a => a.id === id)
+  const getMember  = (id) => members.find(m => m.id === id)
+
+  // ── MODALES ────────────────────────────────────────────────────────────────
+  const openModal  = (name) => setModal(name)
+  const closeModal = ()     => setModal(null)
+
+  // ── VALOR DEL CONTEXTO ─────────────────────────────────────────────────────
+  const ctx = {
+    // Auth
+    session, profile, family, members, authLoading, isDemoMode,
+    signOut, updateProfile,
+
+    // Datos
+    accounts, bankAccounts, cards, debts, recurring, txns,
+    goals, kidsGoals, summary, netWorth, dataLoading, filteredTxns,
+
+    // Derivados
+    t, lang, setLang, tab, setTab, isKid, isOwner, isFamilyAdmin,
+    kids, pendingMembers,
+
+    // Filtros UI
+    filterType, setFilterType,
+    pMode, setPMode, selMonth, setSelMonth, rFrom, setRFrom, rTo, setRTo,
+    af, applyFilter, selAcc, setSelAcc, selPm, setSelPm,
+
+    // Modales
+    modal, openModal, closeModal,
+
+    // Mutaciones — Transacciones
+    addTxn, editTxn, deleteTxn,
+
+    // Mutaciones — Cuentas
+    addAccount, editAccount, deleteAccount,
+
+    // Mutaciones — Deudas
+    addDebt, editDebt, deleteDebt, payDebt,
+
+    // Mutaciones — Recurrentes
+    addRecurring, editRecurring, deleteRecurring, markRecPaid,
+
+    // Mutaciones — Metas
+    addGoal, editGoal, deleteGoal, depositGoal,
+    addKidGoal, depositKidGoal,
+
+    // Mutaciones — Miembros
+    setMemberStatus, setMemberRole,
+
+    // Helpers
+    getAccount, getMember, reload: loadData,
+
+    // Setters directos (para demo y casos edge)
+    setAccounts, setDebts, setRecurring, setTxns, setGoals, setKidsGoals, setMembers,
+  }
+
+  return <AppCtx.Provider value={ctx}>{children}</AppCtx.Provider>
+}
