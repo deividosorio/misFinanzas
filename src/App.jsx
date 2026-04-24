@@ -34,7 +34,7 @@
 //   6. Todo OK                                 → Layout completo
 // ─────────────────────────────────────────────────────────────────────────────
 import { AppProvider, useApp } from './context/AppContext'
-import { Header, Sidebar, BottomNav, FilterBar } from './components/layout/index'
+import { Header, Sidebar, BottomNav, FilterBar } from './components/layout/Index'
 import { DemoBanner } from './components/ui/index'
 
 // Páginas principales
