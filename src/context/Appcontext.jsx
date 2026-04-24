@@ -117,7 +117,7 @@ const DEMO_RECURRING = [
 
 const DEMO_TXNS = [
   { id: 't-1', type: 'income', category: 'salary', description: 'Salario Mayo — Deivid', amount: 5200, date: '2025-05-01', account_id: 'acc-1', payment_account_id: null, auto_source: null, created_by: 'demo-user-1' },
-  { id: 't-2', type: 'income', category: 'salary', description: 'Salario Mayo — Andrea', amount: 4200, date: '2025-05-01', account_id: 'acc-2', payment_account_id: null, auto_source: null, created_by: 'demo-user-2' },
+  { id: 't-2', type: 'income', category: 'salary', description: 'Salario Mayo — Martha', amount: 4200, date: '2025-05-01', account_id: 'acc-2', payment_account_id: null, auto_source: null, created_by: 'demo-user-2' },
   { id: 't-3', type: 'expense', category: 'food', description: 'IGA Supermercado', amount: 320, date: '2025-05-03', account_id: 'acc-3', payment_account_id: 'acc-4', auto_source: null, created_by: 'demo-user-2' },
   { id: 't-4', type: 'expense', category: 'utilities', description: 'Hydro-Québec', amount: 110, date: '2025-05-05', account_id: 'acc-3', payment_account_id: 'acc-4', auto_source: 'recurring', source_id: 'r-3', created_by: 'demo-user-1' },
   { id: 't-5', type: 'expense', category: 'transport', description: 'Gasolina Shell', amount: 95, date: '2025-05-07', account_id: 'acc-1', payment_account_id: 'acc-4', auto_source: null, created_by: 'demo-user-1' },
