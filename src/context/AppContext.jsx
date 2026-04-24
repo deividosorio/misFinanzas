@@ -303,7 +303,7 @@ export function AppProvider({ children }) {
     }, 5000)
 
     // ── Verificar sesión existente ────────────────────────────────────────────
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       if (resolved) return  // Ya se resolvió por timeout
       resolved = true
       clearTimeout(timeout)
@@ -353,8 +353,8 @@ export function AppProvider({ children }) {
     )
 
     return () => {
-      cancelled = true
-      clearTimeout(safetyTimeout)
+      resolved = true
+      clearTimeout(timeout)
       subscription.unsubscribe()
     }
   }, [isDemoMode])
@@ -1110,78 +1110,6 @@ export function AppProvider({ children }) {
     }).select().single()
     if (!error) await loadData()
     return { data, error }
-  }
-
-  // ── GESTIÓN DE MIEMBROS (solo admin/owner) ─────────────────────────────────
-
-  /**
-   * setMemberStatus — Aprueba o suspende un miembro.
-   * pending → active (aprobar)
-   * active → suspended (suspender)
-   */
-  const setMemberStatus = async (memberId, status) => {
-    if (!isFamilyAdmin) return { error: new Error('Sin permiso') }
-
-    if (isDemoMode) {
-      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, status } : m))
-      return { error: null }
-    }
-    const { error } = await supabase.rpc('rpc_set_member_status', {
-      p_member_id: memberId,
-      p_status: status,
-    })
-    if (!error) await loadData()
-    return { error }
-  }
-
-  /**
-   * setMemberRole — Cambia el rol de un miembro (solo owner).
-   */
-  const setMemberRole = async (memberId, role) => {
-    if (profile?.role !== 'owner') return { error: new Error('Solo el propietario') }
-
-    if (isDemoMode) {
-      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m))
-      return { error: null }
-    }
-    const { error } = await supabase.rpc('rpc_set_member_role', {
-      p_member_id: memberId,
-      p_role: role,
-    })
-    if (!error) await loadData()
-    return { error }
-  }
-
-  // ── PERFIL ─────────────────────────────────────────────────────────────────
-
-  /**
-   * updateProfile — Actualiza preferencias del perfil propio.
-   */
-  const updateProfile = async (changes) => {
-    if (isDemoMode) {
-      setProfile(prev => ({ ...prev, ...changes }))
-      if (changes.lang) setLang(changes.lang)
-      return { error: null }
-    }
-    const { error } = await supabase.rpc('rpc_update_profile', {
-      p_display_name: changes.display_name || null,
-      p_avatar_emoji: changes.avatar_emoji || null,
-      p_avatar_color: changes.avatar_color || null,
-      p_lang: changes.lang || null,
-      p_theme: changes.theme || null,
-    })
-    if (!error) {
-      setProfile(prev => ({ ...prev, ...changes }))
-      if (changes.lang) setLang(changes.lang)
-    }
-    return { error }
-  }
-
-  // ── AUTENTICACIÓN ──────────────────────────────────────────────────────────
-
-  const signOut = async () => {
-    if (supabase) await supabase.auth.signOut()
-    setSession(null); setProfile(null); setFamily(null)
   }
 
   // ── HELPERS DE BÚSQUEDA ────────────────────────────────────────────────────
