@@ -24,6 +24,14 @@
 //   - Evitar que se rendericen dentro de tarjetas (z-index issues)
 //   - Poder abrirlos desde cualquier parte del árbol de componentes
 //   - Un único punto de control de qué modal está abierto
+//
+// ÁRBOL DE DECISIÓN (en orden):
+//   1. authLoading = true                      → <LoadingScreen />
+//   2. !session y Supabase configurado         → <Auth />
+//   3. session pero profile.family_id = null   → <FamilySetupScreen />
+//   4. profile.status = 'pending'              → <PendingScreen />
+//   5. profile.is_kid = true                   → Layout Kids
+//   6. Todo OK                                 → Layout completo
 // ─────────────────────────────────────────────────────────────────────────────
 import { AppProvider, useApp } from './context/AppContext'
 import { Header, Sidebar, BottomNav, FilterBar } from './components/layout/index'
@@ -50,6 +58,22 @@ import {
   ImportCSVModal,
 } from './pages/Modals'
 
+// ── Páginas disponibles en el router ─────────────────────────────────────────
+const PAGE_MAP = {
+  dashboard:    <Dashboard />,
+  transactions: <Transactions />,
+  debts:        <Debts />,
+  recurring:    <Recurring />,
+  savings:      <Savings />,
+  kids:         <Kids parentView />,
+  statements:   <Statements />,
+  family:       <Family />,
+  admin:        <Admin />,
+}
+
+// Tabs que muestran la barra de filtros de período y cuenta
+const TABS_WITH_FILTER = ['dashboard', 'transactions', 'statements']
+
 // ── AppInner — tiene acceso al contexto (useApp) ──────────────────────────────
 function AppInner() {
   const {
@@ -60,37 +84,8 @@ function AppInner() {
   } = useApp()
 
   // ── 1. CARGANDO SESIÓN ─────────────────────────────────────────────────────
-  if (authLoading) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'var(--bg)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column',
-        gap: 16,
-      }}>
-        <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
-        <div style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 28,
-          fontWeight: 900,
-          background: 'linear-gradient(135deg, #4f7cff, #a78bfa)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-        }}>
-          MiFinanza
-        </div>
-        <div style={{
-          color: 'var(--muted)',
-          fontSize: 13,
-          animation: 'pulse 1.5s infinite',
-        }}>
-          {t.loading}
-        </div>
-      </div>
-    )
+    if (authLoading) {
+    return <LoadingScreen t={t} />
   }
 
   // ── 2. SIN SESIÓN → pantallas de auth ────────────────────────────────────
@@ -130,89 +125,59 @@ function AppInner() {
 
   // ── 6. LAYOUT COMPLETO (adulto autenticado con familia activa) ────────────
 
-  // Mapa de tab → componente de página
-  const PAGE_MAP = {
-    dashboard: <Dashboard />,
-    transactions: <Transactions />,
-    debts: <Debts />,
-    recurring: <Recurring />,
-    savings: <Savings />,
-    kids: <Kids parentView />,
-    statements: <Statements />,
-    family: <Family />,
-    admin: <Admin />,
-  }
-
-  // Tabs que muestran la FilterBar (con selector de período y cuenta)
-  const TABS_WITH_FILTER = ['dashboard', 'transactions', 'statements']
-
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-
-      {/* ── HEADER SUPERIOR (sticky) ── */}
       <Header />
 
-      {/* ── ÁREA PRINCIPAL: sidebar + contenido ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-
-        {/* Sidebar de navegación — solo desktop */}
         <Sidebar />
-
-        {/* Área de contenido scrolleable */}
         <main style={{
-          flex: 1,
-          overflowY: 'auto',
+          flex: 1, overflowY: 'auto',
           padding: '18px 16px',
-          maxWidth: 980,
-          width: '100%',
-          margin: '0 auto',
-          paddingBottom: 80,  // espacio para BottomNav en mobile
+          maxWidth: 980, width: '100%', margin: '0 auto',
+          paddingBottom: 80,
         }}>
-
-          {/* Banner modo demo */}
           {isDemoMode && <DemoBanner />}
-
-          {/* Filtros de período y cuenta (solo en tabs específicos) */}
           {TABS_WITH_FILTER.includes(tab) && <FilterBar />}
-
-          {/* Página activa con animación de entrada */}
           <div className="slide-in">
             {PAGE_MAP[tab] || <Dashboard />}
           </div>
         </main>
       </div>
 
-      {/* ── NAVEGACIÓN INFERIOR (solo mobile) ── */}
       <BottomNav />
 
-      {/* ── MODALES GLOBALES ─────────────────────────────────────────────────
-          Se renderizan aquí (fuera de las páginas) para garantizar z-index
-          correcto. El valor de `modal` en AppContext determina cuál está abierto.
-      ──────────────────────────────────────────────────────────────────────── */}
-
-      {/* Nueva transacción */}
-      {modal === 'tx' && <TxModal />}
-
-      {/* Nueva cuenta bancaria (solo admin) */}
-      {modal === 'acc' && <AccModal />}
-
-      {/* Nueva tarjeta / forma de pago (solo admin) */}
-      {modal === 'pm' && <PmModal />}
-
-      {/* Nueva deuda */}
-      {modal === 'debt' && <DebtModal />}
-
-      {/* Nuevo pago recurrente */}
+      {/* Modales globales */}
+      {modal === 'tx'        && <TxModal />}
+      {modal === 'acc'       && <AccModal />}
+      {modal === 'pm'        && <PmModal />}
+      {modal === 'debt'      && <DebtModal />}
       {modal === 'recurring' && <RecurringModal />}
+      {modal === 'goal'      && <GoalModal />}
+      {modal === 'kidGoal'   && <KidGoalModal />}
+    </div>
+  )
+}
 
-      {/* Nueva meta de ahorro (adultos) */}
-      {modal === 'goal' && <GoalModal />}
-
-      {/* Nueva meta de ahorro (niños) */}
-      {modal === 'kidGoal' && <KidGoalModal />}
-
-      {/* Importar CSV */}
-      {modal === 'importCSV' && <ImportCSVModal />}
+// ── LoadingScreen ─────────────────────────────────────────────────────────────
+function LoadingScreen({ t }) {
+  return (
+    <div style={{
+      minHeight: '100vh', background: 'var(--bg)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexDirection: 'column', gap: 16,
+    }}>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+      <div style={{
+        fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 900,
+        background: 'linear-gradient(135deg,#4f7cff,#a78bfa)',
+        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+      }}>
+        MiFinanza
+      </div>
+      <div style={{ color: 'var(--muted)', fontSize: 13, animation: 'pulse 1.5s infinite' }}>
+        {t?.loading || 'Cargando...'}
+      </div>
     </div>
   )
 }
