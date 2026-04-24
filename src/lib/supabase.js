@@ -41,14 +41,26 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 - supabase — Cliente de Supabase o null en modo demo.
 - 
 - El resto de la app debe verificar:
-- if (!supabase) { // modo demo, usar estado local }
-- else { // modo producción, llamar a Supabase }
-- 
-- @type {import('@supabase/supabase-js').SupabaseClient | null}
-  */
+ * Siempre verificar antes de usar:
+ *   if (!supabase) { // modo demo }
+ *   else { // producción }
+ *
+ * @type {import('@supabase/supabase-js').SupabaseClient | null}
+ */
 export const supabase = (SUPABASE_URL && SUPABASE_KEY)
-    ? createClient(SUPABASE_URL, SUPABASE_KEY)
-    : null
+  ? createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: {
+        // Persiste la sesión en localStorage para que el usuario
+        // no tenga que re-autenticarse al recargar la página
+        persistSession:    true,
+        // Detecta el hash #access_token en la URL después de
+        // confirmar email o hacer reset de contraseña
+        detectSessionInUrl: true,
+        // Refresca el token automáticamente antes de que expire
+        autoRefreshToken:  true,
+      },
+    })
+  : null
 
 // ── WRAPPERS CON MANEJO DE ERRORES ────────────────────────────────────────
 

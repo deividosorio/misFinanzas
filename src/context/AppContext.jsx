@@ -23,6 +23,28 @@
 //   - status: active  → puede usar la app
 //   - status: suspended → bloqueado
 //   Solo owner y admin pueden cambiar el status de otros miembros.
+//
+// ── MÁQUINA DE ESTADOS DE ONBOARDING ─────────────────────────────────────────
+//
+//   signUp()
+//     │
+//     ▼
+//   Trigger handle_new_user() crea profiles con family_id = NULL
+//     │
+//     ▼
+//   onboardingState = 'no_family'
+//     │
+//     ├── "Crear familia" → rpc_create_family() → role = 'owner' → 'ready'
+//     └── "Unirme"        → rpc_join_family()   → status = 'pending'
+//                               │
+//                               ▼
+//                         onboardingState = 'pending'
+//                               │
+//                         Admin aprueba → status = 'active'
+//                               │
+//                               ▼
+//                         onboardingState = 'ready'
+// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   createContext, useContext, useState,
@@ -180,10 +202,22 @@ export function AppProvider({ children }) {
   const isDemoMode = !supabase
 
   // ── Estado de autenticación ────────────────────────────────────────────────
-  const [session, setSession] = useState(isDemoMode ? { user: { id: 'demo-user-1', email: 'deivid@mifinanza.ca' } } : null)
-  const [profile, setProfile] = useState(isDemoMode ? DEMO_PROFILE : null)
-  const [family, setFamily] = useState(isDemoMode ? DEMO_FAMILY : null)
+   // ── AUTH STATE ─────────────────────────────────────────────────────────────
+  // IMPORTANTE: En modo demo, authLoading = false DESDE EL INICIO.
+  // No hay nada que esperar — los datos demo ya están listos.
+  const [session,     setSession]     = useState(
+    isDemoMode ? { user: { id:'demo-1', email:'deivid@demo.ca' } } : null
+  )
+  const [profile,     setProfile]     = useState(isDemoMode ? DEMO_PROFILE : null)
+  const [family,      setFamily]      = useState(isDemoMode ? DEMO_FAMILY  : null)
   const [authLoading, setAuthLoading] = useState(!isDemoMode)
+
+  // ── ESTADO DE ONBOARDING ───────────────────────────────────────────────────
+  // Controla qué pantalla muestra App.jsx.
+  // Valores: 'loading' | 'unauthenticated' | 'no_profile' | 'no_family' | 'pending' | 'ready'
+  const [onboardingState, setOnboardingState] = useState(
+    isDemoMode ? 'ready' : 'loading'
+  )
 
   // ── Estado de datos financieros ────────────────────────────────────────────
   const [accounts, setAccounts] = useState(isDemoMode ? DEMO_ACCOUNTS : [])
@@ -219,7 +253,11 @@ export function AppProvider({ children }) {
   // Cambiar idioma también actualiza profile
   const setLang = (l) => {
     setLangState(l)
-    if (isDemoMode) setProfile(prev => prev ? { ...prev, lang: l } : prev)
+    setProfile(prev => prev ? { ...prev, lang: l } : prev)
+    // Persistir en Supabase si está disponible (fire-and-forget)
+    if (supabase && profile?.id) {
+      supabase.rpc('rpc_update_profile', { p_lang: l }).catch(console.error)
+    }
   }
 
   // ── Derivados ──────────────────────────────────────────────────────────────
@@ -264,6 +302,7 @@ export function AppProvider({ children }) {
       }
     }, 5000)
 
+    // ── Verificar sesión existente ────────────────────────────────────────────
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (resolved) return  // Ya se resolvió por timeout
       resolved = true
@@ -272,78 +311,203 @@ export function AppProvider({ children }) {
       if (error) {
         console.error('[MiFinanza] getSession error:', error.message)
         setAuthLoading(false)
+        setOnboardingState('unauthenticated')
         return
       }
 
-      setSession(session)
-      if (session?.user) {
-        loadProfile(session.user.id)
-      } else {
+      if (!session?.user) {
+        // No hay sesión activa → mostrar login
+        setSession(null)
         setAuthLoading(false)
+        setOnboardingState('unauthenticated')
+        return
       }
+
+      // Hay sesión → cargar el perfil
+      setSession(session)
+      await resolveProfile(session.user)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session?.user) {
-        loadProfile(session.user.id)
-      } else {
-        setProfile(null)
-        setFamily(null)
-        setAuthLoading(false)
+    // ── Escuchar cambios de auth ──────────────────────────────────────────────
+    // Se activa cuando el usuario hace login, logout, o refresca el token
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (resolved) return
+
+        console.log('[MiFinanza] Auth event:', event)
+
+        if (event === 'SIGNED_OUT' || !session) {
+          setSession(null)
+          setProfile(null)
+          setFamily(null)
+          setOnboardingState('unauthenticated')
+          setAuthLoading(false)
+          return
+        }
+
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+          setSession(session)
+          await resolveProfile(session.user)
+        }
       }
-    })
+    )
 
     return () => {
-      clearTimeout(timeout)
+      cancelled = true
+      clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
   }, [isDemoMode])
 
-  // ── Cargar perfil y familia ────────────────────────────────────────────────
-  const loadProfile = async (uid) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles').select('*').eq('id', uid).single()
 
-      if (error || !data) {
+  // ── resolveProfile ────────────────────────────────────────────────────────
+  /**
+   * Carga el perfil del usuario y determina el estado de onboarding.
+   *
+   * FLUJO:
+   *   1. Buscar perfil en la tabla profiles
+   *   2. Si NO existe → crearlo (el trigger falló o es usuario muy nuevo)
+   *   3. Si existe sin family_id → estado 'no_family' → mostrar FamilySetupScreen
+   *   4. Si existe con family_id y status='pending' → estado 'pending'
+   *   5. Si existe con family_id y status='active' → cargar familia → estado 'ready'
+   *
+   * @param {object} user - Objeto de usuario de supabase.auth
+   */
+  const resolveProfile = async (user) => {
+    try {
+      // Intentar obtener el perfil existente
+      let { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+
+      // Si el perfil no existe (el trigger no corrió), crearlo manualmente
+      if (profileError?.code === 'PGRST116' || !profileData) {
+        console.warn('[MiFinanza] Perfil no encontrado — creando manualmente')
+        const displayName =
+          user.user_metadata?.display_name ||
+          user.user_metadata?.full_name    ||
+          user.email?.split('@')[0]        ||
+          'Usuario'
+
+        const { data: newProfile, error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id:           user.id,
+            display_name: displayName,
+            email:        user.email,
+            role:         'member',    // Se cambia a 'owner' cuando crea familia
+            status:       'active',
+            is_kid:       false,
+            avatar_emoji: '🧑',
+            avatar_color: '#4f7cff',
+            lang:         'es',
+            theme:        'dark',
+          })
+          .select()
+          .single()
+
+        if (insertError) {
+          console.error('[MiFinanza] Error creando perfil:', insertError.message)
+          setAuthLoading(false)
+          setOnboardingState('no_profile')
+          return
+        }
+
+        profileData = newProfile
+      }
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error('[MiFinanza] Error cargando perfil:', profileError.message)
         setAuthLoading(false)
+        setOnboardingState('unauthenticated')
         return
       }
 
-      setProfile(data)
-      setLangState(data.lang || 'es')
-
-      if (data.family_id) {
-        const { data: fam } = await supabase
-          .from('families').select('*').eq('id', data.family_id).single()
-        if (fam) setFamily(fam)
+      // Asegurar que el rol no esté vacío
+      if (!profileData.role) {
+        await supabase.from('profiles').update({ role: 'member' }).eq('id', user.id)
+        profileData = { ...profileData, role: 'member' }
       }
-    } catch (err) {
-      console.error('[MiFinanza] loadProfile error:', err)
-    } finally {
+
+      setProfile(profileData)
+      setLangState(profileData.lang || 'es')
+
+      // ── CASO: Sin familia asignada ─────────────────────────────────────────
+      if (!profileData.family_id) {
+        setAuthLoading(false)
+        setOnboardingState('no_family')
+        return
+      }
+
+      // ── CASO: Con familia pero pendiente de aprobación ─────────────────────
+      if (profileData.status === 'pending') {
+        // Cargar la familia para mostrar el nombre en la pantalla de espera
+        const { data: familyData } = await supabase
+          .from('families')
+          .select('*')
+          .eq('id', profileData.family_id)
+          .single()
+        if (familyData) setFamily(familyData)
+        setAuthLoading(false)
+        setOnboardingState('pending')
+        return
+      }
+
+      // ── CASO: Activo con familia ───────────────────────────────────────────
+      const { data: familyData, error: familyError } = await supabase
+        .from('families')
+        .select('*')
+        .eq('id', profileData.family_id)
+        .single()
+
+      if (familyError || !familyData) {
+        // La familia no existe (fue eliminada) → resetear family_id
+        console.warn('[MiFinanza] Familia no encontrada, reseteando family_id')
+        await supabase.from('profiles').update({ family_id: null }).eq('id', user.id)
+        setProfile(prev => prev ? { ...prev, family_id: null } : prev)
+        setAuthLoading(false)
+        setOnboardingState('no_family')
+        return
+      }
+
+      setFamily(familyData)
       setAuthLoading(false)
+      setOnboardingState('ready')
+
+    } catch (err) {
+      console.error('[MiFinanza] resolveProfile error inesperado:', err)
+      setAuthLoading(false)
+      setOnboardingState('unauthenticated')
     }
   }
 
-  // ── Cargar todos los datos desde Supabase ──────────────────────────────────
+  // ── RECARGAR PERFIL ────────────────────────────────────────────────────────
+  /**
+   * Fuerza la recarga del perfil desde Supabase.
+   * Útil después de aprobar un miembro, cambiar familia, etc.
+   */
+  const reloadProfile = useCallback(async () => {
+    if (!supabase) return
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user) {
+      setOnboardingState('loading')
+      setAuthLoading(true)
+      await resolveProfile(session.user)
+    }
+  }, [])
+
+  // ── CARGAR DATOS FINANCIEROS ───────────────────────────────────────────────
   const loadData = useCallback(async () => {
     if (isDemoMode || !family?.id) return
     setDataLoading(true)
     const fid = family.id
 
     try {
-      const [
-        { data: accsData },
-        { data: txnsData },
-        { data: debtsData },
-        { data: recData },
-        { data: goalsData },
-        { data: kgData },
-        { data: membersData },
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         supabase.from('accounts').select('*').eq('family_id', fid).eq('is_active', true).order('created_at'),
-        supabase.from('transactions').select('*').eq('family_id', fid).eq('is_void', false).order('date', { ascending: false }).limit(500),
+        supabase.from('transactions').select('*').eq('family_id', fid).eq('is_void', false).order('date', { ascending:false }).limit(500),
         supabase.from('debts').select('*').eq('family_id', fid).eq('is_active', true),
         supabase.from('recurring_payments').select('*').eq('family_id', fid).eq('is_active', true).order('next_due'),
         supabase.from('savings_goals').select('*').eq('family_id', fid),
@@ -351,19 +515,20 @@ export function AppProvider({ children }) {
         supabase.from('profiles').select('*').eq('family_id', fid),
       ])
 
-      if (accsData) setAccounts(accsData)
-      if (txnsData) setTxns(txnsData)
-      if (debtsData) setDebts(debtsData)
-      if (recData) setRecurring(recData)
-      if (goalsData) setGoals(goalsData)
-      if (kgData) setKidsGoals(kgData)
+      const [accs, txnsData, debtsData, recData, goalsData, kgData, membersData] = results.map(r =>
+        r.status === 'fulfilled' ? r.value.data : null
+      )
+
+      if (accs)        setAccounts(accs)
+      if (txnsData)    setTxns(txnsData)
+      if (debtsData)   setDebts(debtsData)
+      if (recData)     setRecurring(recData)
+      if (goalsData)   setGoals(goalsData)
+      if (kgData)      setKidsGoals(kgData)
       if (membersData) setMembers(membersData)
 
-      // Resumen del dashboard vía RPC (PostgreSQL calcula los totales)
       const { data: sumData } = await supabase.rpc('rpc_dashboard_summary', {
-        p_from: af.from,
-        p_to: af.to,
-        p_account_id: selAcc || null,
+        p_from: af.from, p_to: af.to, p_account_id: selAcc || null,
       })
       if (sumData) setSummary(sumData)
 
@@ -378,24 +543,128 @@ export function AppProvider({ children }) {
   }, [family?.id, af, selAcc, isDemoMode])
 
   useEffect(() => {
-    if (family?.id) loadData()
-  }, [loadData])
+    if (family?.id && onboardingState === 'ready') loadData()
+  }, [loadData, onboardingState])
 
-  // ── Aplicar filtro de período ──────────────────────────────────────────────
-  const applyFilter = () => {
-    setAf({
-      from: pMode === 'month' ? selMonth + '-01' : rFrom,
-      to: pMode === 'month' ? selMonth + '-31' : rTo,
-    })
-  }
+  const applyFilter = () => setAf({
+    from: pMode === 'month' ? selMonth + '-01' : rFrom,
+    to:   pMode === 'month' ? selMonth + '-31' : rTo,
+  })
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // MUTACIONES — Toda la lógica de negocio
   // Cada función tiene rama demo (estado local) y producción (Supabase RPC)
   // ─────────────────────────────────────────────────────────────────────────
 
-  // ── TRANSACCIONES ──────────────────────────────────────────────────────────
+  /**
+   * signOut — Cierra la sesión del usuario.
+   * Disponible incluso durante el onboarding para que el usuario
+   * pueda salir si se equivocó de cuenta.
+   */
+  const signOut = async () => {
+    if (supabase) await supabase.auth.signOut()
+    setSession(null)
+    setProfile(null)
+    setFamily(null)
+    setOnboardingState('unauthenticated')
+    setMembers([])
+    setAccounts([])
+    setTxns([])
+    setDebts([])
+    setRecurring([])
+    setGoals([])
+    setKidsGoals([])
+  }
 
+  /**
+   * createFamily — Crea una nueva familia y asigna al usuario actual como owner.
+   * Solo se llama desde FamilySetupScreen cuando el usuario elige "Crear familia".
+   */
+  const createFamily = async (name, currency = 'CAD') => {
+    if (!supabase) return { error: new Error('Modo demo — no se puede crear familia') }
+
+    const { data, error } = await supabase.rpc('rpc_create_family', {
+      p_name:     name.trim(),
+      p_currency: currency,
+      p_locale:   'es',
+    })
+
+    if (error) return { data: null, error }
+
+    // Recargar el perfil para obtener el family_id y role=owner asignados
+    await reloadProfile()
+    return { data, error: null }
+  }
+
+  /**
+   * joinFamily — Unirse a una familia existente con un código de invitación.
+   * El usuario queda con status='pending' hasta que el admin lo apruebe.
+   */
+  const joinFamily = async (inviteCode) => {
+    if (!supabase) return { error: new Error('Modo demo') }
+
+    const { data, error } = await supabase.rpc('rpc_join_family', {
+      p_invite_code: inviteCode.trim().toLowerCase(),
+    })
+
+    if (error) return { data: null, error }
+
+    // Recargar perfil para obtener family_id y status=pending
+    await reloadProfile()
+    return { data, error: null }
+  }
+
+  /**
+   * updateProfile — Actualiza las preferencias del perfil propio.
+   */
+  const updateProfile = async (changes) => {
+    if (isDemoMode) {
+      setProfile(prev => prev ? { ...prev, ...changes } : prev)
+      if (changes.lang) setLangState(changes.lang)
+      return { error: null }
+    }
+
+    const { error } = await supabase.rpc('rpc_update_profile', {
+      p_display_name: changes.display_name ?? null,
+      p_avatar_emoji: changes.avatar_emoji ?? null,
+      p_avatar_color: changes.avatar_color ?? null,
+      p_lang:         changes.lang         ?? null,
+      p_theme:        changes.theme        ?? null,
+    })
+
+    if (!error) {
+      setProfile(prev => prev ? { ...prev, ...changes } : prev)
+      if (changes.lang) setLangState(changes.lang)
+    }
+
+    return { error }
+  }
+
+  // Miembros
+  const setMemberStatus = async (memberId, status) => {
+    if (!isFamilyAdmin) return { error: new Error('Sin permiso') }
+    if (isDemoMode) {
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, status } : m))
+      return { error: null }
+    }
+    const { error } = await supabase.rpc('rpc_set_member_status', { p_member_id: memberId, p_status: status })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  const setMemberRole = async (memberId, role) => {
+    if (profile?.role !== 'owner') return { error: new Error('Solo el propietario') }
+    if (isDemoMode) {
+      setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m))
+      return { error: null }
+    }
+    const { error } = await supabase.rpc('rpc_set_member_role', { p_member_id: memberId, p_role: role })
+    if (!error) await loadData()
+    return { error }
+  }
+
+  // ── TRANSACCIONES ──────────────────────────────────────────────────────────
   /**
    * addTxn — Agrega una nueva transacción.
    * En producción: llama a rpc_add_transaction
@@ -925,23 +1194,20 @@ export function AppProvider({ children }) {
 
   // ── VALOR DEL CONTEXTO ─────────────────────────────────────────────────────
   const ctx = {
-    // Auth
+    // Auth + onboarding
     session, profile, family, members, authLoading, isDemoMode,
-    signOut, updateProfile,
-
+    onboardingState, signOut, updateProfile, createFamily, joinFamily, reloadProfile,
     // Datos
     accounts, bankAccounts, cards, debts, recurring, txns,
     goals, kidsGoals, summary, netWorth, dataLoading, filteredTxns,
-
     // Derivados
-    t, lang, setLang, tab, setTab, isKid, isOwner, isFamilyAdmin,
-    kids, pendingMembers,
-
-    // Filtros UI
+    t, lang, setLang, tab, setTab,
+    isKid, isOwner, isFamilyAdmin, kids, pendingMembers,
+    // Filtros
     filterType, setFilterType,
-    pMode, setPMode, selMonth, setSelMonth, rFrom, setRFrom, rTo, setRTo,
+    pMode, setPMode, selMonth, setSelMonth,
+    rFrom, setRFrom, rTo, setRTo,
     af, applyFilter, selAcc, setSelAcc, selPm, setSelPm,
-
     // Modales
     modal, openModal, closeModal,
 
