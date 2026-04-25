@@ -53,17 +53,17 @@
 //   9. El RPC: crea la familia Y asigna a Deivid como 'owner'
 //  10. App carga y muestra el Dashboard ✓
 //
-// FLUJO PARA ANDREA (segunda usuaria):
+// FLUJO PARA Martha (segunda usuaria):
 //   1. Deivid le comparte el código: "garcia2025"
-//   2. Andrea abre la app → 'login' → "¿No tienes cuenta?" → 'register'
+//   2. Martha abre la app → 'login' → "¿No tienes cuenta?" → 'register'
 //   3. Se registra con su email → 'email_sent'
 //   4. Confirma email → 'family_setup' (family_id = null)
 //   5. Elige "Unirme con código" → ingresa "garcia2025" → rpc_join_family()
-//   6. El RPC: vincula a Andrea con status='pending'
-//   7. Andrea ve pantalla 'pending' (no puede usar la app todavía)
+//   6. El RPC: vincula a Martha con status='pending'
+//   7. Martha ve pantalla 'pending' (no puede usar la app todavía)
 //   8. Deivid ve badge ⏳ en el Header
-//   9. Deivid va a Familia → Miembros → Aprobar Andrea
-//  10. Andrea refresca → ve el Dashboard ✓
+//   9. Deivid va a Familia → Miembros → Aprobar Martha
+//  10. Martha refresca → ve el Dashboard ✓
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -748,7 +748,7 @@ function ResetPasswordScreen({ onNavigate }) {
  *   2. Unirse con código   → rpc_join_family()   → rol: member, status: pending
  */
 export function FamilySetupScreen() {
-    const { reload } = useApp()
+    const { reloadProfile } = useApp()
 
     // 'create' → crear nueva familia | 'join' → unirse con código
     const [mode, setMode] = useState('create')
@@ -776,7 +776,7 @@ export function FamilySetupScreen() {
 
         // Familia creada — recargar el estado global (profile ahora tiene family_id)
         setSuccess('¡Familia creada! Cargando tu dashboard...')
-        await reload()
+        await reloadProfile()
         setLoading(false)
     }
 
@@ -799,7 +799,7 @@ export function FamilySetupScreen() {
         }
 
         // Unido como pending — recargar para mostrar la pantalla de pendiente
-        await reload()
+        await reloadProfile()
         setLoading(false)
     }
 

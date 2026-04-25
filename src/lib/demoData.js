@@ -49,7 +49,7 @@ export const DEMO_MEMBERS = [
     },
     {
         id: 'demo-user-2',
-        display_name: 'Andrea',
+        display_name: 'Martha',
         role: 'member',
         is_kid: false,
         avatar_emoji: '👩',
@@ -93,7 +93,7 @@ export const DEMO_ACCOUNTS = [
         name: 'RBC Savings',
         type: 'savings',
         color: '#e879f9',
-        owner_name: 'Andrea',
+        owner_name: 'Martha',
         institution: 'RBC',
         balance: 8750,
         total_income: 21000,
@@ -170,11 +170,11 @@ export const DEMO_RECURRING = [
 // Historial de transacciones (los más recientes primero)
 export const DEMO_TXNS = [
     { id: 't-1', type: 'income', category: 'salary', description: 'Salario Mayo — Deivid', amount: 5200, date: '2025-05-01', account_id: 'acc-1', owner_name: 'Deivid' },
-    { id: 't-2', type: 'income', category: 'salary', description: 'Salario Mayo — Andrea', amount: 4200, date: '2025-05-01', account_id: 'acc-2', owner_name: 'Andrea' },
-    { id: 't-3', type: 'expense', category: 'food', description: 'IGA Supermercado', amount: 320, date: '2025-05-03', payment_id: 'pm-1', account_id: 'acc-3', owner_name: 'Andrea' },
+    { id: 't-2', type: 'income', category: 'salary', description: 'Salario Mayo — Martha', amount: 4200, date: '2025-05-01', account_id: 'acc-2', owner_name: 'Martha' },
+    { id: 't-3', type: 'expense', category: 'food', description: 'IGA Supermercado', amount: 320, date: '2025-05-03', payment_id: 'pm-1', account_id: 'acc-3', owner_name: 'Martha' },
     { id: 't-4', type: 'expense', category: 'utilities', description: 'Hydro-Québec', amount: 110, date: '2025-05-05', payment_id: 'pm-2', account_id: 'acc-3', owner_name: 'Deivid' },
     { id: 't-5', type: 'expense', category: 'transport', description: 'Gasolina Shell', amount: 95, date: '2025-05-07', payment_id: 'pm-1', account_id: 'acc-1', owner_name: 'Deivid' },
-    { id: 't-6', type: 'saving', category: 'vacation', description: 'Fondo vacaciones verano', amount: 400, date: '2025-05-08', account_id: 'acc-2', owner_name: 'Andrea' },
+    { id: 't-6', type: 'saving', category: 'vacation', description: 'Fondo vacaciones verano', amount: 400, date: '2025-05-08', account_id: 'acc-2', owner_name: 'Martha' },
     { id: 't-7', type: 'income', category: 'freelance', description: 'Proyecto web cliente', amount: 1200, date: '2025-05-10', account_id: 'acc-1', owner_name: 'Deivid' },
     { id: 't-8', type: 'expense', category: 'entertainment', description: 'Netflix + Spotify', amount: 35, date: '2025-05-12', payment_id: 'pm-1', account_id: 'acc-1', owner_name: 'Deivid' },
     { id: 't-9', type: 'expense', category: 'food', description: 'Costco', amount: 380, date: '2025-04-20', payment_id: 'pm-1', account_id: 'acc-3', owner_name: 'Familia' },
