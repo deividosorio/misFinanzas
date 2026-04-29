@@ -26,139 +26,572 @@
 //   Simple (campos requeridos no vacíos). En producción se puede agregar
 //   react-hook-form o zod para validación más robusta.
 // ─────────────────────────────────────────────────────────────────────────────
+// src/pages/Modals.jsx
+// ─────────────────────────────────────────────────────────────────────────────
+// PROPÓSITO: Todos los modales de creación de registros.
+//
+// CAMBIOS v4 — MODELO UNIFICADO DE CUENTAS:
+//
+//   ANTES (v3):
+//     - AccModal    → creaba "cuentas bancarias" (solo activos)
+//     - PmModal     → creaba "formas de pago" (tarjetas separadas)
+//     - TxModal     → tenía account_id Y payment_account_id (confuso)
+//     - RecurringModal → tenía selector de "forma de pago" separado
+//
+//   AHORA (v4):
+//     - AccountModal → UN SOLO modal para CUALQUIER tipo de cuenta
+//       El formulario cambia dinámicamente según el subtipo elegido:
+//       * Activos (checking/savings/investment/cash): muestra saldo inicial
+//       * Pasivos (credit_card/credit_line): muestra límite de crédito + últimos 4 dígitos
+//     - TxModal → UN SOLO selector de cuenta (lista unificada débito + crédito)
+//       La lógica contable la maneja el backend según el subtype de la cuenta
+//     - RecurringModal → mismo selector unificado de cuenta
+//
+// LÓGICA DE CUENTA EN TRANSACCIONES:
+//   Débito (checking/savings/cash/investment):
+//     → gasto: saldo BAJA en la cuenta de activo
+//     → ingreso: saldo SUBE
+//   Crédito (credit_card/credit_line):
+//     → gasto: deuda SUBE, disponible BAJA
+//     → el pago del crédito se gestiona vía Recurrentes
+// ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
-import {
-    Modal, Field, Input, Select, ModalFooter,
-    Btn, ColorPicker,
-} from '../components/ui/index'
+import Modal from '../components/ui/Modal'
+import Btn from '../components/ui/Btn'
+import { Field, Input, Select, ModalFooter, ColorPicker } from '../components/ui/Form'
 import {
     INCOME_CATS, EXPENSE_CATS, SAVING_CATS,
-    ACC_COLORS, ACCOUNT_TYPES, PAYMENT_TYPES,
+    ACC_COLORS, ACCOUNT_SUBTYPES, ALL_SUBTYPES,
+    ASSET_SUBTYPES, CREDIT_SUBTYPES,
+    isCredit as isCreditSubtype,
     toDay,
 } from '../lib/constants'
 
-// ── TxModal — Nueva transacción ───────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// AccountModal — MODAL UNIFICADO DE CUENTA
+// Reemplaza AccModal + PmModal de versiones anteriores.
+// ═════════════════════════════════════════════════════════════════════════════
 /**
+ * AccountModal — Crea cualquier tipo de cuenta: débito, ahorro o crédito.
+ *
+ * El formulario se adapta dinámicamente:
+ *   Activos (checking/savings/investment/cash):
+ *     ✓ Saldo inicial (opening_balance)
+ *     ✗ Límite de crédito (no aplica)
+ *     ✗ Últimos 4 dígitos (no aplica)
+ *
+ *   Pasivos (credit_card/credit_line):
+ *     ✗ Saldo inicial (siempre 0 para crédito)
+ *     ✓ Límite de crédito (requerido)
+ *     ✓ Últimos 4 dígitos (opcional, para identificar la tarjeta)
+ *
+ * Solo owner y admin pueden abrir este modal.
+ * La verificación de permisos también está en el RPC rpc_add_account().
+ */
+export function AccountModal({ onClose }) {
+    const { t, members, addAccount, closeModal } = useApp()
 
-- Formulario para registrar un ingreso, gasto o ahorro.
-- 
-- Campos:
-- - Tipo (income/expense/saving) → determina las categorías disponibles
-- - Categoría → lista según el tipo
-- - Cuenta → de cuál cuenta bancaria
-- - Forma de pago → solo visible para gastos (qué tarjeta/efectivo)
-- - Descripción → texto libre
-- - Monto (CAD)
-- - Fecha → default: hoy
-- - Notas → opcional
-    */
-export function TxModal() {
-    const { t, accounts, cards, addTxn, closeModal } = useApp()
+    // Cerrar el modal (usa la función pasada o la del contexto)
+    const handleClose = onClose || closeModal
 
-    // Estado inicial del formulario
     const [f, setF] = useState({
-        type: 'expense',
-        category: 'food',
-        account_id: accounts[0]?.id || '',
-        payment_id: '',
-        description: '',
-        amount: '',
-        date: toDay(),
+        name: '',
+        subtype: 'checking',     // tipo por defecto: cuenta corriente
+        owner_profile: '',             // quién es el titular
+        color: '#4f7cff',
+        institution: '',
+        last_four: '',             // solo para tarjetas
+        credit_limit: '',             // solo para crédito
+        opening_balance: '0',            // solo para activos
         notes: '',
     })
 
-    // Categorías disponibles según el tipo seleccionado
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
+
+    // Configuración del subtipo seleccionado actualmente
+    const subtypeConfig = ACCOUNT_SUBTYPES[f.subtype]
+    const isCredit = subtypeConfig?.isCredit || false
+
+    const set = (k, v) => {
+        setError('')
+        setF(prev => ({
+            ...prev,
+            [k]: v,
+            // Al cambiar a crédito: limpiar saldo inicial
+            // Al cambiar a activo: limpiar límite y últimos 4
+            ...(k === 'subtype' && isCreditSubtype(v)
+                ? { opening_balance: '0', color: ACCOUNT_SUBTYPES[v]?.color || '#ff6b6b' }
+                : {}),
+            ...(k === 'subtype' && !isCreditSubtype(v)
+                ? { credit_limit: '', last_four: '', color: ACCOUNT_SUBTYPES[v]?.color || '#4f7cff' }
+                : {}),
+        }))
+    }
+
+    const handleSave = async () => {
+        // Validaciones
+        if (!f.name.trim()) { setError('El nombre de la cuenta es requerido'); return }
+        if (isCredit && (!f.credit_limit || parseFloat(f.credit_limit) <= 0)) {
+            setError('El límite de crédito es requerido y debe ser mayor que cero'); return
+        }
+        if (!isCredit && parseFloat(f.opening_balance || '0') < 0) {
+            setError('El saldo inicial no puede ser negativo'); return
+        }
+
+        setSaving(true)
+        const { error } = await addAccount({
+            name: f.name.trim(),
+            subtype: f.subtype,
+            owner_profile: f.owner_profile || null,
+            color: f.color,
+            institution: f.institution.trim() || null,
+            last_four: f.last_four.trim() || null,
+            credit_limit: isCredit ? parseFloat(f.credit_limit) : null,
+            opening_balance: isCredit ? 0 : parseFloat(f.opening_balance || '0'),
+            notes: f.notes.trim() || null,
+        })
+
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
+    }
+
+    // Miembros adultos disponibles como titulares
+    const adultMembers = members.filter(m => !m.is_kid && m.status === 'active')
+
+    return (
+        <Modal title="＋ Nueva cuenta" onClose={handleClose} width={460}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                {/* ── SELECTOR DE TIPO DE CUENTA ── */}
+                {/* Dividido en dos grupos: Activos y Crédito */}
+                <Field label="Tipo de cuenta">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {/* Grupo: Activos */}
+                        <div style={{
+                            fontSize: 10, color: 'var(--muted)', fontWeight: 700,
+                            textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2
+                        }}>
+                            Cuentas de activo (dinero que tienes)
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            {ASSET_SUBTYPES.map(st => {
+                                const cfg = ACCOUNT_SUBTYPES[st]
+                                const active = f.subtype === st
+                                return (
+                                    <button key={st} onClick={() => set('subtype', st)} style={{
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '9px 12px', borderRadius: 'var(--radius-sm)',
+                                        border: `1px solid ${active ? cfg.color + '66' : 'var(--border)'}`,
+                                        background: active ? cfg.color + '12' : 'var(--bg)',
+                                        cursor: 'pointer', transition: 'all .15s', textAlign: 'left',
+                                    }}>
+                                        <span style={{ fontSize: 18 }}>{cfg.icon}</span>
+                                        <div>
+                                            <div style={{
+                                                fontSize: 12, fontWeight: 600,
+                                                color: active ? cfg.color : 'var(--text)'
+                                            }}>
+                                                {cfg.label}
+                                            </div>
+                                            {active && (
+                                                <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>
+                                                    {cfg.examples}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+
+                        {/* Separador */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
+                            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                            <span style={{
+                                fontSize: 10, color: 'var(--muted)', fontWeight: 700,
+                                textTransform: 'uppercase', letterSpacing: 0.5
+                            }}>
+                                Crédito (dinero prestado)
+                            </span>
+                            <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                        </div>
+
+                        {/* Grupo: Crédito */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            {CREDIT_SUBTYPES.map(st => {
+                                const cfg = ACCOUNT_SUBTYPES[st]
+                                const active = f.subtype === st
+                                return (
+                                    <button key={st} onClick={() => set('subtype', st)} style={{
+                                        display: 'flex', alignItems: 'center', gap: 8,
+                                        padding: '9px 12px', borderRadius: 'var(--radius-sm)',
+                                        border: `1px solid ${active ? cfg.color + '66' : 'var(--border)'}`,
+                                        background: active ? cfg.color + '12' : 'var(--bg)',
+                                        cursor: 'pointer', transition: 'all .15s', textAlign: 'left',
+                                    }}>
+                                        <span style={{ fontSize: 18 }}>{cfg.icon}</span>
+                                        <div>
+                                            <div style={{
+                                                fontSize: 12, fontWeight: 600,
+                                                color: active ? cfg.color : 'var(--text)'
+                                            }}>
+                                                {cfg.label}
+                                            </div>
+                                            {active && (
+                                                <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>
+                                                    {cfg.examples}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+                </Field>
+
+                {/* ── BANNER EXPLICATIVO según el tipo ── */}
+                <div style={{
+                    background: isCredit ? '#ff6b6b0a' : '#4f7cff0a',
+                    border: `1px solid ${isCredit ? '#ff6b6b33' : '#4f7cff33'}`,
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 12px',
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    lineHeight: 1.6,
+                }}>
+                    {isCredit ? (
+                        <>
+                            <strong style={{ color: 'var(--red)' }}>Cuenta de crédito:</strong>{' '}
+                            Al registrar un gasto con esta cuenta, aumenta tu deuda.
+                            El pago mensual se configura en <strong>Recurrentes</strong>.
+                            El saldo disponible = límite - deuda del mes.
+                        </>
+                    ) : (
+                        <>
+                            <strong style={{ color: 'var(--blue)' }}>Cuenta de activo:</strong>{' '}
+                            Los gastos reducen el saldo. Los ingresos lo aumentan.
+                            El saldo inicial es el dinero actual en la cuenta.
+                        </>
+                    )}
+                </div>
+
+                {/* ── NOMBRE ── */}
+                <Field label="Nombre de la cuenta *">
+                    <Input
+                        value={f.name}
+                        onChange={e => set('name', e.target.value)}
+                        placeholder={isCredit ? 'TD Visa, RBC Mastercard...' : 'TD Savings, RBC Chequing...'}
+                    />
+                </Field>
+
+                {/* ── CAMPOS SEGÚN TIPO ── */}
+                {isCredit ? (
+                    /* Campos para cuentas de crédito */
+                    <div className="g2">
+                        <Field label="Límite de crédito (CAD) *">
+                            <Input
+                                type="number"
+                                value={f.credit_limit}
+                                onChange={e => set('credit_limit', e.target.value)}
+                                placeholder="8000"
+                                min="0"
+                                step="100"
+                            />
+                        </Field>
+                        <Field label="Últimos 4 dígitos (opcional)">
+                            <Input
+                                value={f.last_four}
+                                onChange={e => set('last_four', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                placeholder="4521"
+                                maxLength={4}
+                            />
+                        </Field>
+                    </div>
+                ) : (
+                    /* Campo para cuentas de activo */
+                    <Field label="Saldo inicial (CAD)">
+                        <Input
+                            type="number"
+                            value={f.opening_balance}
+                            onChange={e => set('opening_balance', e.target.value)}
+                            placeholder="0"
+                            min="0"
+                            step="0.01"
+                        />
+                        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                            El saldo actual de tu cuenta hoy. Los movimientos futuros se calculan sobre esto.
+                        </div>
+                    </Field>
+                )}
+
+                {/* ── INSTITUCIÓN ── */}
+                <Field label="Institución bancaria">
+                    <Input
+                        value={f.institution}
+                        onChange={e => set('institution', e.target.value)}
+                        placeholder="TD Bank, RBC, Scotiabank, Desjardins..."
+                    />
+                </Field>
+
+                {/* ── TITULAR ── */}
+                <Field label="Titular de la cuenta">
+                    <Select
+                        value={f.owner_profile}
+                        onChange={e => set('owner_profile', e.target.value)}
+                    >
+                        <option value="">— Seleccionar titular —</option>
+                        {adultMembers.map(m => (
+                            <option key={m.id} value={m.id}>
+                                {m.avatar_emoji} {m.display_name}
+                            </option>
+                        ))}
+                    </Select>
+                </Field>
+
+                {/* ── COLOR ── */}
+                <Field label="Color identificador">
+                    <ColorPicker
+                        colors={ACC_COLORS}
+                        selected={f.color}
+                        onChange={c => set('color', c)}
+                    />
+                </Field>
+
+                {/* ── NOTAS ── */}
+                <Field label="Notas (opcional)">
+                    <Input
+                        value={f.notes}
+                        onChange={e => set('notes', e.target.value)}
+                        placeholder="Información adicional..."
+                    />
+                </Field>
+
+                {/* Error */}
+                {error && (
+                    <div style={{
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>
+                        ⚠️ {error}
+                    </div>
+                )}
+
+                <ModalFooter
+                    onClose={handleClose}
+                    onSave={handleSave}
+                    saveLabel={saving ? 'Guardando...' : `Crear ${subtypeConfig?.label || 'cuenta'}`}
+                    cancelLabel={t.cancel}
+                    disabled={saving || !f.name.trim()}
+                />
+            </div>
+        </Modal>
+    )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TxModal — NUEVA TRANSACCIÓN (con selector de cuenta unificado)
+// ═════════════════════════════════════════════════════════════════════════════
+/**
+ * TxModal — Registra un ingreso, gasto o ahorro.
+ *
+ * CAMBIO v4: Un solo selector de cuenta (lista unificada).
+ * El usuario elige la cuenta con la que realizó la transacción,
+ * sin importar si es débito o crédito.
+ *
+ * La lógica contable la maneja el backend automáticamente:
+ *   - Cuenta de débito → saldo baja al gastar
+ *   - Cuenta de crédito → deuda sube al gastar
+ *
+ * Para INGRESOS: solo se muestran cuentas de activo
+ *   (los ingresos no se depositan en tarjetas de crédito)
+ * Para GASTOS: se muestran TODAS las cuentas (débito + crédito)
+ * Para AHORROS: solo cuentas de activo
+ */
+export function TxModal({ onClose }) {
+    const { t, accounts, addTxn, closeModal } = useApp()
+
+    const handleClose = onClose || closeModal
+
     const CATS_BY_TYPE = {
         income: INCOME_CATS,
         expense: EXPENSE_CATS,
         saving: SAVING_CATS,
     }
 
-    // Actualizador de campo con reset de categoría al cambiar tipo
-    const set = (key, value) => {
+    const [f, setF] = useState({
+        type: 'expense',
+        category: 'food',
+        account_id: '',
+        description: '',
+        amount: '',
+        date: toDay(),
+        notes: '',
+    })
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
+
+    const set = (k, v) => {
+        setError('')
         setF(prev => ({
             ...prev,
-            [key]: value,
-            // Al cambiar tipo, resetear categoría al primero disponible
-            ...(key === 'type' ? { category: CATS_BY_TYPE[value][0] } : {}),
+            [k]: v,
+            // Al cambiar tipo: reset categoría y cuenta
+            ...(k === 'type' ? {
+                category: CATS_BY_TYPE[v][0],
+                account_id: '', // reset porque la lista de cuentas disponibles cambia
+            } : {}),
         }))
     }
 
+    // Cuentas disponibles según el tipo de transacción
+    const availableAccounts = accounts.filter(a => {
+        if (!a.is_active) return false
+        if (f.type === 'income' || f.type === 'saving') {
+            // Ingresos y ahorros solo van a cuentas de activo
+            return !isCreditSubtype(a.subtype)
+        }
+        // Gastos: todas las cuentas (débito y crédito)
+        return true
+    })
+
+    // Separar para mostrar grupos en el selector
+    const assetAccounts = availableAccounts.filter(a => !isCreditSubtype(a.subtype))
+    const creditAccounts = availableAccounts.filter(a => isCreditSubtype(a.subtype))
+
+    // Cuenta seleccionada (para mostrar info)
+    const selectedAccount = accounts.find(a => a.id === f.account_id)
+    const selectedIsCredit = selectedAccount ? isCreditSubtype(selectedAccount.subtype) : false
+
     const handleSave = async () => {
-        if (!f.description || !f.amount) return
-        await addTxn({ ...f, amount: parseFloat(f.amount) })
-        closeModal()
+        if (!f.description.trim()) { setError('La descripción es requerida'); return }
+        if (!f.amount || parseFloat(f.amount) <= 0) { setError('El monto debe ser mayor que cero'); return }
+        if (!f.account_id) { setError('Selecciona la cuenta o tarjeta'); return }
+
+        setSaving(true)
+        const { error } = await addTxn({
+            type: f.type,
+            category: f.category,
+            description: f.description.trim(),
+            amount: parseFloat(f.amount),
+            date: f.date,
+            account_id: f.account_id || null,
+            notes: f.notes.trim() || null,
+        })
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
     }
 
     return (
-        <Modal title={`+ ${t.addTransaction}`} onClose={closeModal}>
+        <Modal title={`＋ ${t.addTransaction}`} onClose={handleClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 
-
-                {/* Selector de tipo: 3 botones toggle */}
+                {/* Tipo de transacción */}
                 <Field label={t.type}>
                     <div style={{ display: 'flex', gap: 5 }}>
-                        {['income', 'expense', 'saving'].map(tp => (
-                            <Btn
-                                key={tp}
-                                size="sm"
-                                variant={f.type === tp ? 'primary' : 'ghost'}
-                                style={{ flex: 1 }}
-                                onClick={() => set('type', tp)}
-                            >
-                                {t[tp]}
-                            </Btn>
+                        {[
+                            { id: 'income', label: t.income, color: 'var(--green)' },
+                            { id: 'expense', label: t.expense, color: 'var(--red)' },
+                            { id: 'saving', label: t.saving, color: 'var(--purple)' },
+                        ].map(tp => (
+                            <button key={tp.id} onClick={() => set('type', tp.id)} style={{
+                                flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
+                                border: `1px solid ${f.type === tp.id ? tp.color + '66' : 'var(--border)'}`,
+                                background: f.type === tp.id ? tp.color + '12' : 'transparent',
+                                color: f.type === tp.id ? tp.color : 'var(--muted)',
+                                fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
+                                cursor: 'pointer', transition: 'all .15s',
+                            }}>
+                                {tp.label}
+                            </button>
                         ))}
                     </div>
                 </Field>
 
-                {/* Categoría (depende del tipo) */}
+                {/* Categoría */}
                 <Field label={t.category}>
                     <Select value={f.category} onChange={e => set('category', e.target.value)}>
-                        {CATS_BY_TYPE[f.type].map(c => (
-                            <option key={c} value={c}>{t.cats[c]}</option>
+                        {(CATS_BY_TYPE[f.type] || []).map(c => (
+                            <option key={c} value={c}>{t.cats?.[c] || c}</option>
                         ))}
                     </Select>
                 </Field>
 
-                {/* Cuenta bancaria */}
-                <Field label={t.account}>
+                {/* ── SELECTOR DE CUENTA UNIFICADO ── */}
+                <Field label={
+                    f.type === 'expense'
+                        ? 'Cuenta o tarjeta utilizada'
+                        : f.type === 'income'
+                            ? 'Cuenta donde entra el dinero'
+                            : 'Cuenta de ahorro'
+                }>
                     <Select value={f.account_id} onChange={e => set('account_id', e.target.value)}>
                         <option value="">— Seleccionar cuenta —</option>
-                        {accounts.map(a => (
-                            <option key={a.id} value={a.id}>
-                                {a.name} ({a.owner_name})
-                            </option>
-                        ))}
-                    </Select>
-                </Field>
 
-                {/* Forma de pago (solo para gastos) */}
-                {f.type === 'expense' && (
-                    <Field label={t.paymentMethod}>
-                        <Select value={f.payment_id} onChange={e => set('payment_id', e.target.value)}>
-                            <option value="">— Seleccionar forma de pago —</option>
-                            {cards.map(c => (
-                                <option key={c.id} value={c.id}>
-                                    {c.name}{c.last_four ? ` ···${c.last_four}` : ''}
-                                </option>
-                            ))}
-                        </Select>
-                    </Field>
-                )}
+                        {/* Grupo: Cuentas de activo (débito/ahorro/inversión/efectivo) */}
+                        {assetAccounts.length > 0 && (
+                            <optgroup label="💳 Débito / Ahorro / Efectivo">
+                                {assetAccounts.map(a => (
+                                    <option key={a.id} value={a.id}>
+                                        {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+                                        {a.owner_name ? ` (${a.owner_name})` : ''}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
+
+                        {/* Grupo: Tarjetas de crédito (solo para gastos) */}
+                        {creditAccounts.length > 0 && f.type === 'expense' && (
+                            <optgroup label="💳 Tarjeta de crédito / Línea de crédito">
+                                {creditAccounts.map(a => (
+                                    <option key={a.id} value={a.id}>
+                                        💳 {a.name}
+                                        {a.last_four ? ` ···${a.last_four}` : ''}
+                                        {a.owner_name ? ` (${a.owner_name})` : ''}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
+                    </Select>
+
+                    {/* Indicador de tipo de cuenta seleccionada */}
+                    {selectedAccount && (
+                        <div style={{
+                            marginTop: 4, fontSize: 10, display: 'flex', alignItems: 'center', gap: 4,
+                            color: selectedIsCredit ? 'var(--red)' : 'var(--green)',
+                        }}>
+                            <span>{selectedIsCredit ? '💳 Crédito' : '🏦 Débito'}</span>
+                            {selectedIsCredit && (
+                                <span style={{ color: 'var(--muted)' }}>
+                                    · el gasto aumentará tu deuda con {selectedAccount.institution || 'el banco'}
+                                </span>
+                            )}
+                            {!selectedIsCredit && (
+                                <span style={{ color: 'var(--muted)' }}>
+                                    · el gasto se descontará del saldo de la cuenta
+                                </span>
+                            )}
+                        </div>
+                    )}
+                </Field>
 
                 {/* Descripción */}
                 <Field label={t.description}>
                     <Input
                         value={f.description}
                         onChange={e => set('description', e.target.value)}
-                        placeholder="Ej: IGA Supermercado, Salario Mayo..."
+                        placeholder={
+                            f.type === 'income' ? 'Ej: Salario Mayo, Freelance proyecto web...' :
+                                f.type === 'expense' ? 'Ej: IGA Supermercado, Gasolina Shell...' :
+                                    'Ej: Ahorro vacaciones, Fondo emergencias...'
+                        }
                         onKeyDown={e => e.key === 'Enter' && handleSave()}
                     />
                 </Field>
 
-                {/* Monto y Fecha en grid de 2 columnas */}
+                {/* Monto y fecha */}
                 <div className="g2">
                     <Field label={`${t.amount} (CAD)`}>
                         <Input
@@ -179,405 +612,615 @@ export function TxModal() {
                     </Field>
                 </div>
 
-                {/* Notas opcionales */}
-                <Field label={`${t.notes} (opcional)`}>
+                {/* Notas */}
+                <Field label="Notas (opcional)">
                     <Input
                         value={f.notes}
                         onChange={e => set('notes', e.target.value)}
-                        placeholder="Notas adicionales..."
+                        placeholder="Información adicional..."
                     />
                 </Field>
 
-                <ModalFooter
-                    onClose={closeModal}
-                    onSave={handleSave}
-                    saveLabel={t.save}
-                    cancelLabel={t.cancel}
-                    disabled={!f.description || !f.amount}
-                />
-            </div>
-        </Modal>
-
-
-    )
-}
-
-// ── AccModal — Nueva cuenta bancaria ──────────────────────────────────────────
-/**
-
-- Crea una nueva cuenta bancaria (activo en el Balance General).
-- En producción llama a rpc_add_asset_account que también crea el
-- asiento de saldo inicial si opening_balance > 0.
-  */
-export function AccModal() {
-    const { t, closeModal, setAccounts } = useApp()
-    const [f, setF] = useState({
-        name: '',
-        owner_name: '',
-        type: 'savings',
-        color: '#4f7cff',
-        institution: '',
-        opening_balance: 0,
-    })
-    const set = (k, v) => setF(p => ({ ...p, [k]: v }))
-
-    const handleSave = () => {
-        if (!f.name || !f.owner_name) return
-        // En producción: await supabase.rpc('rpc_add_asset_account', {...})
-        setAccounts(prev => [...prev, { ...f, id: 'acc-' + Date.now(), balance: f.opening_balance, total_income: 0, total_expense: 0 }])
-        closeModal()
-    }
-
-    return (
-        <Modal title={`+ ${t.addAccount}`} onClose={closeModal}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <div className="g2">
-                    <Field label={t.accountName}>
-                        <Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="TD Savings" />
-                    </Field>
-                    <Field label={t.accountOwner}>
-                        <Input value={f.owner_name} onChange={e => set('owner_name', e.target.value)} placeholder="Deivid" />
-                    </Field>
-                </div>
-
-
-                <Field label={t.type}>
-                    <Select value={f.type} onChange={e => set('type', e.target.value)}>
-                        {ACCOUNT_TYPES.map(tp => (
-                            <option key={tp} value={tp}>{t.types?.[tp] || tp}</option>
-                        ))}
-                    </Select>
-                </Field>
-
-                <Field label={t.institution}>
-                    <Input value={f.institution} onChange={e => set('institution', e.target.value)} placeholder="TD Bank" />
-                </Field>
-
-                <Field label={t.openingBalance}>
-                    <Input
-                        type="number"
-                        value={f.opening_balance}
-                        onChange={e => set('opening_balance', parseFloat(e.target.value) || 0)}
-                        min="0"
-                        placeholder="Saldo actual de la cuenta"
-                    />
-                </Field>
-
-                <Field label={t.color}>
-                    <ColorPicker colors={ACC_COLORS} selected={f.color} onChange={c => set('color', c)} />
-                </Field>
-
-                <ModalFooter
-                    onClose={closeModal}
-                    onSave={handleSave}
-                    saveLabel={t.save}
-                    cancelLabel={t.cancel}
-                    disabled={!f.name || !f.owner_name}
-                />
-            </div>
-        </Modal>
-
-
-    )
-}
-
-// ── PmModal — Nueva forma de pago ─────────────────────────────────────────────
-/**
-
-- Crea una tarjeta de crédito, débito, línea de crédito u otra forma de pago.
-- Los campos de últimos 4 dígitos y límite solo aparecen para tarjetas/líneas.
-  */
-export function PmModal() {
-    const { t, closeModal, setCards } = useApp()
-    const [f, setF] = useState({
-        name: '',
-        type: 'credit_card',
-        last_four: '',
-        credit_limit: '',
-        color: '#ff6b6b',
-    })
-    const set = (k, v) => setF(p => ({ ...p, [k]: v }))
-    const showCardFields = ['credit_card', 'debit_card', 'credit_line'].includes(f.type)
-
-    const handleSave = () => {
-        if (!f.name) return
-        setCards(prev => [...prev, {
-            ...f,
-            id: 'pm-' + Date.now(),
-            credit_limit: parseFloat(f.credit_limit) || undefined,
-            month_spent: 0,
-        }])
-        closeModal()
-    }
-
-    return (
-        <Modal title={`+ ${t.addPaymentMethod}`} onClose={closeModal}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <div className="g2">
-                    <Field label={t.accountName}>
-                        <Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="TD Visa" />
-                    </Field>
-                    <Field label={t.type}>
-                        <Select value={f.type} onChange={e => set('type', e.target.value)}>
-                            {PAYMENT_TYPES.map(tp => (
-                                <option key={tp} value={tp}>{t[tp] || tp}</option>
-                            ))}
-                        </Select>
-                    </Field>
-                </div>
-
-
-                {/* Campos adicionales solo para tarjetas */}
-                {showCardFields && (
-                    <div className="g2">
-                        <Field label={t.lastFour}>
-                            <Input
-                                value={f.last_four}
-                                onChange={e => set('last_four', e.target.value)}
-                                maxLength={4}
-                                placeholder="4521"
-                            />
-                        </Field>
-                        <Field label={t.creditLimit}>
-                            <Input
-                                type="number"
-                                value={f.credit_limit}
-                                onChange={e => set('credit_limit', e.target.value)}
-                                placeholder="8000"
-                                min="0"
-                            />
-                        </Field>
+                {error && (
+                    <div style={{
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>
+                        ⚠️ {error}
                     </div>
                 )}
 
-                <Field label={t.color}>
-                    <ColorPicker colors={ACC_COLORS} selected={f.color} onChange={c => set('color', c)} />
-                </Field>
-
                 <ModalFooter
-                    onClose={closeModal}
+                    onClose={handleClose}
                     onSave={handleSave}
-                    saveLabel={t.save}
+                    saveLabel={saving ? 'Guardando...' : t.save}
                     cancelLabel={t.cancel}
-                    disabled={!f.name}
+                    disabled={saving || !f.description || !f.amount || !f.account_id}
                 />
             </div>
         </Modal>
-
-
     )
 }
 
-// ── DebtModal — Nueva deuda ───────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// DebtModal — Nueva deuda de largo plazo
+// ═════════════════════════════════════════════════════════════════════════════
 /**
+ * DebtModal — Registra una deuda de largo plazo (hipoteca, auto, préstamo).
+ *
+ * NOTA: Las deudas son DIFERENTES de las tarjetas de crédito:
+ *   - Deudas: préstamos a largo plazo con cuotas fijas (hipoteca, auto)
+ *   - Crédito: saldo revolving mensual (credit_card, credit_line)
+ *
+ * El pago de la deuda se gestiona vía Recurrentes (linked_debt_id).
+ * La cuenta vinculada es la cuenta de débito desde donde se descuenta el pago.
+ */
+export function DebtModal({ onClose }) {
+    const { t, accounts, addDebt, closeModal } = useApp()
+    const handleClose = onClose || closeModal
 
-- Registra una nueva deuda (hipoteca, auto, préstamo personal, etc.).
-- En producción, rpc_add_liability_account crea el asiento contable
-- inicial en el modelo de doble entrada.
-  */
-export function DebtModal() {
-    const { t, closeModal, setDebts } = useApp()
+    // Solo cuentas de activo para vincular el pago de la deuda
+    const debitAccounts = accounts.filter(a =>
+        a.is_active && !isCreditSubtype(a.subtype)
+    )
+
     const [f, setF] = useState({
         name: '',
+        category: 'mortgage',
         total_amount: '',
         paid_amount: '0',
         monthly_payment: '',
         interest_rate: '',
         start_date: toDay(),
+        linked_account_id: '',
+        notes: '',
     })
-    const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
 
-    const handleSave = () => {
-        if (!f.name || !f.total_amount) return
-        setDebts(prev => [...prev, {
-            ...f,
-            id: 'd-' + Date.now(),
+    const DEBT_CATEGORIES = [
+        { id: 'mortgage', label: '🏠 Hipoteca / Mortgage' },
+        { id: 'car', label: '🚗 Préstamo auto' },
+        { id: 'personal_loan', label: '💼 Préstamo personal' },
+        { id: 'student_loan', label: '🎓 Préstamo estudiantil' },
+        { id: 'other_expense', label: '📋 Otro tipo de deuda' },
+    ]
+
+    const handleSave = async () => {
+        if (!f.name.trim()) { setError('El nombre es requerido'); return }
+        if (!f.total_amount || parseFloat(f.total_amount) <= 0) {
+            setError('El monto total debe ser mayor que cero'); return
+        }
+        if (parseFloat(f.paid_amount || '0') > parseFloat(f.total_amount)) {
+            setError('Lo pagado no puede superar el total'); return
+        }
+
+        setSaving(true)
+        const { error } = await addDebt({
+            name: f.name.trim(),
+            category: f.category,
             total_amount: parseFloat(f.total_amount),
             paid_amount: parseFloat(f.paid_amount || '0'),
-            monthly_payment: parseFloat(f.monthly_payment || '0'),
-            interest_rate: parseFloat(f.interest_rate || '0'),
-        }])
-        closeModal()
+            monthly_payment: f.monthly_payment ? parseFloat(f.monthly_payment) : null,
+            interest_rate: f.interest_rate ? parseFloat(f.interest_rate) : 0,
+            start_date: f.start_date || null,
+            linked_account_id: f.linked_account_id || null,
+            notes: f.notes.trim() || null,
+        })
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
     }
 
     return (
-        <Modal title={`+ ${t.addDebt}`} onClose={closeModal}>
+        <Modal title="＋ Nueva deuda" onClose={handleClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <Field label={t.debtName}>
-                    <Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="Hipoteca TD" />
+
+                {/* Info explicativa */}
+                <div style={{
+                    background: 'var(--orange)0a', border: '1px solid var(--orange)33',
+                    borderRadius: 'var(--radius-sm)', padding: '9px 12px',
+                    fontSize: 11, color: 'var(--muted)', lineHeight: 1.6,
+                }}>
+                    💡 Las <strong style={{ color: 'var(--text)' }}>deudas</strong> son préstamos
+                    a largo plazo (hipoteca, auto, préstamo personal).
+                    Para tarjetas de crédito, usa <strong style={{ color: 'var(--text)' }}>Nueva cuenta → Tarjeta de crédito</strong>.
+                </div>
+
+                <Field label="Nombre de la deuda *">
+                    <Input
+                        value={f.name}
+                        onChange={e => setF(p => ({ ...p, name: e.target.value }))}
+                        placeholder="Hipoteca TD, Auto Honda CR-V..."
+                    />
                 </Field>
+
+                <Field label="Categoría">
+                    <Select value={f.category} onChange={e => setF(p => ({ ...p, category: e.target.value }))}>
+                        {DEBT_CATEGORIES.map(c => (
+                            <option key={c.id} value={c.id}>{c.label}</option>
+                        ))}
+                    </Select>
+                </Field>
+
                 <div className="g2">
-                    <Field label={t.totalDebt}>
-                        <Input type="number" value={f.total_amount} onChange={e => set('total_amount', e.target.value)} placeholder="320000" min="0" />
+                    <Field label="Monto total de la deuda (CAD) *">
+                        <Input
+                            type="number"
+                            value={f.total_amount}
+                            onChange={e => setF(p => ({ ...p, total_amount: e.target.value }))}
+                            placeholder="320000"
+                            min="0"
+                        />
                     </Field>
-                    <Field label={t.paidAmount}>
-                        <Input type="number" value={f.paid_amount} onChange={e => set('paid_amount', e.target.value)} placeholder="0" min="0" />
+                    <Field label="Ya pagado hasta hoy (CAD)">
+                        <Input
+                            type="number"
+                            value={f.paid_amount}
+                            onChange={e => setF(p => ({ ...p, paid_amount: e.target.value }))}
+                            placeholder="0"
+                            min="0"
+                        />
                     </Field>
-                    <Field label={t.monthlyPayment}>
-                        <Input type="number" value={f.monthly_payment} onChange={e => set('monthly_payment', e.target.value)} placeholder="1850" min="0" />
+                    <Field label="Cuota mensual estimada (CAD)">
+                        <Input
+                            type="number"
+                            value={f.monthly_payment}
+                            onChange={e => setF(p => ({ ...p, monthly_payment: e.target.value }))}
+                            placeholder="1850"
+                            min="0"
+                        />
                     </Field>
-                    <Field label={t.interestRate}>
-                        <Input type="number" value={f.interest_rate} onChange={e => set('interest_rate', e.target.value)} placeholder="4.5" min="0" step="0.01" />
+                    <Field label="Tasa de interés anual (%)">
+                        <Input
+                            type="number"
+                            value={f.interest_rate}
+                            onChange={e => setF(p => ({ ...p, interest_rate: e.target.value }))}
+                            placeholder="4.5"
+                            min="0"
+                            step="0.01"
+                        />
                     </Field>
                 </div>
-                <Field label={t.startDate}>
-                    <Input type="date" value={f.start_date} onChange={e => set('start_date', e.target.value)} />
+
+                <Field label="Fecha de inicio">
+                    <Input
+                        type="date"
+                        value={f.start_date}
+                        onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}
+                    />
                 </Field>
+
+                <Field label="Cuenta desde donde se paga (débito/ahorro)">
+                    <Select
+                        value={f.linked_account_id}
+                        onChange={e => setF(p => ({ ...p, linked_account_id: e.target.value }))}
+                    >
+                        <option value="">— Seleccionar cuenta (opcional) —</option>
+                        {debitAccounts.map(a => (
+                            <option key={a.id} value={a.id}>
+                                {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+                                {a.owner_name ? ` (${a.owner_name})` : ''}
+                            </option>
+                        ))}
+                    </Select>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+                        La cuenta desde donde se descuentan los pagos mensuales
+                    </div>
+                </Field>
+
+                <Field label="Notas (opcional)">
+                    <Input
+                        value={f.notes}
+                        onChange={e => setF(p => ({ ...p, notes: e.target.value }))}
+                        placeholder="Banco, condiciones, notas..."
+                    />
+                </Field>
+
+                {error && (
+                    <div style={{
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>
+                        ⚠️ {error}
+                    </div>
+                )}
+
                 <ModalFooter
-                    onClose={closeModal}
+                    onClose={handleClose}
                     onSave={handleSave}
-                    saveLabel={t.save}
+                    saveLabel={saving ? 'Guardando...' : 'Crear deuda'}
                     cancelLabel={t.cancel}
-                    disabled={!f.name || !f.total_amount}
+                    disabled={saving || !f.name.trim() || !f.total_amount}
                 />
             </div>
         </Modal>
     )
 }
 
-// ── RecurringModal — Nuevo pago recurrente ────────────────────────────────────
+// ═════════════════════════════════════════════════════════════════════════════
+// RecurringModal — Nuevo pago recurrente (con selector de cuenta unificado)
+// ═════════════════════════════════════════════════════════════════════════════
 /**
-
-- Configura un pago que se repite periódicamente.
-- Permite seleccionar cuenta O tarjeta como forma de pago.
-  */
-export function RecurringModal() {
-    const { t, accounts, cards, closeModal, setRecurring } = useApp()
-
-    // Combinar cuentas y tarjetas en una sola lista para el selector
-    const allPaymentMethods = [
-        ...accounts.map(a => ({ ...a, kind: 'acc', label: `${a.name} (${a.owner_name})` })),
-        ...cards.map(c => ({ ...c, kind: 'pm', label: `${c.name}${c.last_four ? ` ···${c.last_four}` : ''}` })),
-    ]
+ * RecurringModal — Configura un pago que se repite periódicamente.
+ *
+ * CAMBIO v4: Selector de cuenta unificado.
+ * La cuenta puede ser:
+ *   - Cuenta de débito/ahorro → el pago descuenta del saldo
+ *   - Tarjeta de crédito → el pago aumenta la deuda de la tarjeta
+ *
+ * VINCULACIÓN CON DEUDA (linked_debt_id):
+ *   Opcional. Si se vincula a una deuda (hipoteca, auto):
+ *   Al marcar el pago como pagado → automáticamente abona a la deuda.
+ *   Ejemplo: "Hipoteca TD" vinculado a deuda "Hipoteca TD".
+ *   Al marcar pagado: descuenta de TD Chequing Y abona a la deuda hipoteca.
+ */
+export function RecurringModal({ onClose }) {
+    const { t, accounts, debts, addRecurring, closeModal } = useApp()
+    const handleClose = onClose || closeModal
 
     const [f, setF] = useState({
         name: '',
         amount: '',
         frequency: 'monthly',
         category: 'utilities',
-        pm_id: allPaymentMethods[0]?.id || '',
+        account_id: '',
+        linked_debt_id: '',
         next_due: toDay(),
+        notes: '',
     })
-    const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
 
-    const handleSave = () => {
-        if (!f.name || !f.amount) return
-        setRecurring(prev => [...prev, { ...f, id: 'r-' + Date.now(), amount: parseFloat(f.amount) }])
-        closeModal()
+    // Separar cuentas para el selector
+    const debitAccounts = accounts.filter(a => a.is_active && !isCreditSubtype(a.subtype))
+    const creditAccounts = accounts.filter(a => a.is_active && isCreditSubtype(a.subtype))
+
+    // Deudas activas disponibles para vincular
+    const activeDebts = debts.filter(d => d.is_active)
+
+    // Cuenta seleccionada
+    const selectedAccount = accounts.find(a => a.id === f.account_id)
+    const selectedIsCredit = selectedAccount ? isCreditSubtype(selectedAccount.subtype) : false
+
+    // Deuda seleccionada (para mostrar info)
+    const selectedDebt = debts.find(d => d.id === f.linked_debt_id)
+
+    const FREQ_OPTIONS = [
+        { id: 'monthly', label: 'Mensual (12 veces/año)' },
+        { id: 'biweekly', label: 'Quincenal (26 veces/año)' },
+        { id: 'weekly', label: 'Semanal (52 veces/año)' },
+        { id: 'yearly', label: 'Anual (1 vez/año)' },
+    ]
+
+    const handleSave = async () => {
+        if (!f.name.trim()) { setError('El nombre es requerido'); return }
+        if (!f.amount || parseFloat(f.amount) <= 0) { setError('El monto debe ser mayor que cero'); return }
+        if (!f.account_id) { setError('Selecciona la cuenta o tarjeta'); return }
+
+        setSaving(true)
+        const { error } = await addRecurring({
+            name: f.name.trim(),
+            amount: parseFloat(f.amount),
+            frequency: f.frequency,
+            category: f.category,
+            account_id: f.account_id || null,
+            linked_debt_id: f.linked_debt_id || null,
+            next_due: f.next_due || null,
+            notes: f.notes.trim() || null,
+        })
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
     }
 
     return (
-        <Modal title={`+ ${t.addRecurring}`} onClose={closeModal}>
+        <Modal title="＋ Nuevo pago recurrente" onClose={handleClose} width={460}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                <Field label={t.recurringName}>
-                    <Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="Hydro-Québec" />
+
+                <Field label="Nombre del pago *">
+                    <Input
+                        value={f.name}
+                        onChange={e => setF(p => ({ ...p, name: e.target.value }))}
+                        placeholder="Hydro-Québec, Bell Internet, Seguro auto..."
+                    />
                 </Field>
+
                 <div className="g2">
-                    <Field label={`${t.amount} (CAD)`}>
-                        <Input type="number" value={f.amount} onChange={e => set('amount', e.target.value)} placeholder="110" min="0" />
+                    <Field label="Monto (CAD) *">
+                        <Input
+                            type="number"
+                            value={f.amount}
+                            onChange={e => setF(p => ({ ...p, amount: e.target.value }))}
+                            placeholder="110"
+                            min="0"
+                            step="0.01"
+                        />
                     </Field>
-                    <Field label={t.frequency}>
-                        <Select value={f.frequency} onChange={e => set('frequency', e.target.value)}>
-                            {['monthly', 'biweekly', 'weekly', 'yearly'].map(fr => (
-                                <option key={fr} value={fr}>{t[fr]}</option>
+                    <Field label="Frecuencia">
+                        <Select
+                            value={f.frequency}
+                            onChange={e => setF(p => ({ ...p, frequency: e.target.value }))}
+                        >
+                            {FREQ_OPTIONS.map(fr => (
+                                <option key={fr.id} value={fr.id}>{fr.label}</option>
                             ))}
                         </Select>
                     </Field>
                 </div>
-                <Field label={t.category}>
-                    <Select value={f.category} onChange={e => set('category', e.target.value)}>
+
+                <Field label="Categoría">
+                    <Select value={f.category} onChange={e => setF(p => ({ ...p, category: e.target.value }))}>
                         {EXPENSE_CATS.map(c => (
-                            <option key={c} value={c}>{t.cats[c]}</option>
+                            <option key={c} value={c}>{t.cats?.[c] || c}</option>
                         ))}
                     </Select>
                 </Field>
-                <Field label={`${t.account} / ${t.paymentMethod}`}>
-                    <Select value={f.pm_id} onChange={e => set('pm_id', e.target.value)}>
-                        {allPaymentMethods.map(m => (
-                            <option key={m.id} value={m.id}>{m.label}</option>
-                        ))}
+
+                {/* ── SELECTOR DE CUENTA UNIFICADO ── */}
+                <Field label="Cuenta o tarjeta con que se paga *">
+                    <Select
+                        value={f.account_id}
+                        onChange={e => setF(p => ({ ...p, account_id: e.target.value }))}
+                    >
+                        <option value="">— Seleccionar cuenta —</option>
+
+                        {debitAccounts.length > 0 && (
+                            <optgroup label="🏦 Débito / Ahorro / Efectivo">
+                                {debitAccounts.map(a => (
+                                    <option key={a.id} value={a.id}>
+                                        {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+                                        {a.owner_name ? ` (${a.owner_name})` : ''}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
+
+                        {creditAccounts.length > 0 && (
+                            <optgroup label="💳 Tarjeta de crédito / Línea">
+                                {creditAccounts.map(a => (
+                                    <option key={a.id} value={a.id}>
+                                        💳 {a.name}
+                                        {a.last_four ? ` ···${a.last_four}` : ''}
+                                        {a.owner_name ? ` (${a.owner_name})` : ''}
+                                    </option>
+                                ))}
+                            </optgroup>
+                        )}
                     </Select>
+
+                    {/* Info de la cuenta seleccionada */}
+                    {selectedAccount && (
+                        <div style={{
+                            marginTop: 4, fontSize: 10, color: selectedIsCredit ? 'var(--red)' : 'var(--green)',
+                            display: 'flex', alignItems: 'center', gap: 4,
+                        }}>
+                            {selectedIsCredit ? (
+                                <>💳 Crédito · el gasto se registrará en la deuda de la tarjeta</>
+                            ) : (
+                                <>🏦 Débito · el gasto se descontará del saldo de la cuenta</>
+                            )}
+                        </div>
+                    )}
                 </Field>
-                <Field label={t.nextDue}>
-                    <Input type="date" value={f.next_due} onChange={e => set('next_due', e.target.value)} />
+
+                {/* ── VINCULAR CON DEUDA (opcional) ── */}
+                {activeDebts.length > 0 && (
+                    <Field label="Vincular con deuda de largo plazo (opcional)">
+                        <Select
+                            value={f.linked_debt_id}
+                            onChange={e => setF(p => ({ ...p, linked_debt_id: e.target.value }))}
+                        >
+                            <option value="">— Sin vinculación a deuda —</option>
+                            {activeDebts.map(d => (
+                                <option key={d.id} value={d.id}>
+                                    {d.name} · {
+                                        new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+                                            .format(d.total_amount - d.paid_amount)
+                                    } restante
+                                </option>
+                            ))}
+                        </Select>
+
+                        {/* Explicación si hay deuda seleccionada */}
+                        {selectedDebt && (
+                            <div style={{
+                                marginTop: 6, fontSize: 11, lineHeight: 1.6,
+                                background: 'var(--orange)0a', border: '1px solid var(--orange)33',
+                                borderRadius: 'var(--radius-sm)', padding: '7px 10px', color: 'var(--muted)',
+                            }}>
+                                ↺ Al marcar este pago como pagado, se abonará{' '}
+                                <strong style={{ color: 'var(--text)' }}>
+                                    {f.amount ? `$${parseFloat(f.amount).toFixed(0)}` : 'el monto'}
+                                </strong>{' '}
+                                automáticamente a la deuda <strong style={{ color: 'var(--orange)' }}>
+                                    {selectedDebt.name}
+                                </strong>.
+                            </div>
+                        )}
+                        {!selectedDebt && (
+                            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+                                Ejemplo: "Hipoteca TD" → vincula al pago mensual de tu deuda hipotecaria
+                            </div>
+                        )}
+                    </Field>
+                )}
+
+                {/* Próximo vencimiento */}
+                <Field label="Fecha del próximo pago">
+                    <Input
+                        type="date"
+                        value={f.next_due}
+                        onChange={e => setF(p => ({ ...p, next_due: e.target.value }))}
+                    />
                 </Field>
+
+                <Field label="Notas (opcional)">
+                    <Input
+                        value={f.notes}
+                        onChange={e => setF(p => ({ ...p, notes: e.target.value }))}
+                        placeholder="Número de contrato, referencia de pago..."
+                    />
+                </Field>
+
+                {error && (
+                    <div style={{
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>
+                        ⚠️ {error}
+                    </div>
+                )}
+
                 <ModalFooter
-                    onClose={closeModal}
+                    onClose={handleClose}
                     onSave={handleSave}
-                    saveLabel={t.save}
+                    saveLabel={saving ? 'Guardando...' : 'Crear pago recurrente'}
                     cancelLabel={t.cancel}
-                    disabled={!f.name || !f.amount}
+                    disabled={saving || !f.name.trim() || !f.amount || !f.account_id}
                 />
             </div>
         </Modal>
     )
 }
 
-// ── GoalModal — Nueva meta de ahorro (adultos) ────────────────────────────────
-export function GoalModal() {
-    const { t, closeModal, setGoals } = useApp()
-    const EMOJIS = ['🎯', '✈️', '🏠', '🚗', '💻', '🏖', '🎓', '🛡️', '💍', '🎸', '⚽', '🌟', '🎭', '🍕', '🏕']
-    const [f, setF] = useState({ name: '', target: 0, current: 0, emoji: '🎯', color: '#4f7cff' })
+// ═════════════════════════════════════════════════════════════════════════════
+// GoalModal — Nueva meta de ahorro (adultos)
+// ═════════════════════════════════════════════════════════════════════════════
+export function GoalModal({ onClose }) {
+    const { t, accounts, addGoal, closeModal } = useApp()
+    const handleClose = onClose || closeModal
+
+    const EMOJIS = ['🎯', '✈️', '🏠', '🚗', '💻', '🏖', '🎓', '🛡️', '💍', '🎸', '⚽', '🌟', '🐕', '🎭']
+
+    const [f, setF] = useState({
+        name: '',
+        target_amount: '',
+        emoji: '🎯',
+        color: '#4f7cff',
+        account_id: '',
+        deadline: '',
+        notes: '',
+    })
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
+
+    // Solo cuentas de ahorro/activo para las metas
+    const savingsAccounts = accounts.filter(a =>
+        a.is_active && !isCreditSubtype(a.subtype)
+    )
+
+    const handleSave = async () => {
+        if (!f.name.trim()) { setError('El nombre es requerido'); return }
+        if (!f.target_amount || parseFloat(f.target_amount) <= 0) {
+            setError('El monto objetivo debe ser mayor que cero'); return
+        }
+        setSaving(true)
+        const { error } = await addGoal({
+            name: f.name.trim(),
+            target_amount: parseFloat(f.target_amount),
+            current_amount: 0,
+            emoji: f.emoji,
+            color: f.color,
+            account_id: f.account_id || null,
+            deadline: f.deadline || null,
+            notes: f.notes.trim() || null,
+        })
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
+    }
 
     return (
-        <Modal title={`+ ${t.addGoal}`} onClose={closeModal}>
+        <Modal title="＋ Nueva meta de ahorro" onClose={handleClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                {/* Selector de emoji */}
-                <Field label="Emoji">
+
+                <Field label="Emoji de la meta">
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {EMOJIS.map(e => (
-                            <button
-                                key={e}
-                                onClick={() => setF(p => ({ ...p, emoji: e }))}
-                                style={{
-                                    width: 36, height: 36, borderRadius: 8, fontSize: 18,
-                                    border: `2px solid ${f.emoji === e ? 'var(--blue)' : 'var(--border)'}`,
-                                    background: f.emoji === e ? 'var(--blue)18' : 'transparent',
-                                    cursor: 'pointer',
-                                }}
-                            >
+                            <button key={e} onClick={() => setF(p => ({ ...p, emoji: e }))} style={{
+                                width: 36, height: 36, borderRadius: 8, fontSize: 20,
+                                border: `2px solid ${f.emoji === e ? 'var(--blue)' : 'var(--border)'}`,
+                                background: f.emoji === e ? 'var(--blue)12' : 'transparent', cursor: 'pointer',
+                            }}>
                                 {e}
                             </button>
                         ))}
                     </div>
                 </Field>
-                <Field label={t.goalName}>
-                    <Input value={f.name} onChange={e => setF(p => ({ ...p, name: e.target.value }))} placeholder="Vacaciones 2025" />
+
+                <Field label="Nombre de la meta *">
+                    <Input
+                        value={f.name}
+                        onChange={e => setF(p => ({ ...p, name: e.target.value }))}
+                        placeholder="Vacaciones 2025, Fondo emergencias..."
+                    />
                 </Field>
+
                 <div className="g2">
-                    <Field label={t.targetAmount}>
-                        <Input type="number" value={f.target} onChange={e => setF(p => ({ ...p, target: parseFloat(e.target.value) || 0 }))} min="0" />
+                    <Field label="Monto objetivo (CAD) *">
+                        <Input
+                            type="number"
+                            value={f.target_amount}
+                            onChange={e => setF(p => ({ ...p, target_amount: e.target.value }))}
+                            placeholder="3000"
+                            min="0"
+                        />
                     </Field>
-                    <Field label={t.currentAmount}>
-                        <Input type="number" value={f.current} onChange={e => setF(p => ({ ...p, current: parseFloat(e.target.value) || 0 }))} min="0" />
+                    <Field label="Fecha límite (opcional)">
+                        <Input
+                            type="date"
+                            value={f.deadline}
+                            onChange={e => setF(p => ({ ...p, deadline: e.target.value }))}
+                        />
                     </Field>
                 </div>
-                <ModalFooter
-                    onClose={closeModal}
-                    onSave={() => {
-                        if (!f.name || !f.target) return
-                        setGoals(prev => [...prev, { ...f, id: 'g-' + Date.now() }])
-                        closeModal()
-                    }}
-                    saveLabel={t.save}
+
+                <Field label="Cuenta asociada (opcional)">
+                    <Select
+                        value={f.account_id}
+                        onChange={e => setF(p => ({ ...p, account_id: e.target.value }))}
+                    >
+                        <option value="">— Sin cuenta específica —</option>
+                        {savingsAccounts.map(a => (
+                            <option key={a.id} value={a.id}>
+                                {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+                                {a.owner_name ? ` (${a.owner_name})` : ''}
+                            </option>
+                        ))}
+                    </Select>
+                </Field>
+
+                <Field label="Color">
+                    <ColorPicker colors={ACC_COLORS} selected={f.color} onChange={c => setF(p => ({ ...p, color: c }))} />
+                </Field>
+
+                <Field label="Notas (opcional)">
+                    <Input value={f.notes} onChange={e => setF(p => ({ ...p, notes: e.target.value }))} />
+                </Field>
+
+                {error && (
+                    <div style={{
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>⚠️ {error}</div>
+                )}
+
+                <ModalFooter onClose={handleClose} onSave={handleSave}
+                    saveLabel={saving ? 'Guardando...' : 'Crear meta'}
                     cancelLabel={t.cancel}
-                    disabled={!f.name || !f.target}
-                />
-            </div >
-        </Modal >
+                    disabled={saving || !f.name.trim() || !f.target_amount} />
+            </div>
+        </Modal>
     )
 }
 
-// ── KidGoalModal — Nueva meta de ahorro (niños) ───────────────────────────────
-/**
+// ═════════════════════════════════════════════════════════════════════════════
+// KidGoalModal — Nueva meta de ahorro (niños)
+// ═════════════════════════════════════════════════════════════════════════════
+export function KidGoalModal({ onClose }) {
+    const { t, kids, addKidGoal, closeModal } = useApp()
+    const handleClose = onClose || closeModal
 
-- Crea una meta gamificada para un niño específico de la familia.
-- Incluye selector de niño, emoji, color y mensaje de ánimo.
-  */
-export function KidGoalModal() {
-    const { t, kids, closeModal, setKidsGoals } = useApp()
     const EMOJIS = ['⭐', '🎮', '🚲', '🎯', '🏀', '🎸', '📚', '🦋', '🌈', '🎪', '🚀', '💎', '🐉', '🎠']
-    const COLORS = ['#fbbf24', '#818cf8', '#2dd4a0', '#ff6b6b', '#38bdf8', '#f472b6', '#a78bfa']
+    const COLORS = ['#fbbf24', '#818cf8', '#2dd4a0', '#ff6b6b', '#38bdf8', '#f472b6', '#a78bfa', '#fb923c']
 
     const [f, setF] = useState({
         kid_profile: kids[0]?.id || '',
@@ -587,248 +1230,98 @@ export function KidGoalModal() {
         color: '#fbbf24',
         reward_text: '',
     })
-    const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
 
-    const handleSave = () => {
-        if (!f.kid_profile || !f.name || !f.target_amount) return
+    const handleSave = async () => {
+        if (!f.kid_profile) { setError('Selecciona el niño/a'); return }
+        if (!f.name.trim()) { setError('El nombre es requerido'); return }
+        if (!f.target_amount || parseFloat(f.target_amount) <= 0) {
+            setError('El monto objetivo debe ser mayor que cero'); return
+        }
+        setSaving(true)
         const kid = kids.find(k => k.id === f.kid_profile)
-        setKidsGoals(prev => [...prev, {
-            ...f,
-            id: 'kg-' + Date.now(),
+        const { error } = await addKidGoal({
+            kid_profile: f.kid_profile,
             kid_name: kid?.display_name || '',
+            name: f.name.trim(),
             target_amount: parseFloat(f.target_amount),
-            current_amount: 0,
-            status: 'active',
-        }])
-        closeModal()
+            emoji: f.emoji,
+            color: f.color,
+            reward_text: f.reward_text.trim() || null,
+        })
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
     }
 
     return (
-        <Modal title="⭐ Nueva meta para un niño" onClose={closeModal}>
+        <Modal title="⭐ Nueva meta para un niño/a" onClose={handleClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-                {/* Selector de niño */}
-                <Field label="Niño/a">
-                    <Select value={f.kid_profile} onChange={e => set('kid_profile', e.target.value)}>
-                        <option value="">— Seleccionar niño/a —</option>
+
+                <Field label="Niño/a *">
+                    <Select value={f.kid_profile} onChange={e => setF(p => ({ ...p, kid_profile: e.target.value }))}>
+                        <option value="">— Seleccionar —</option>
                         {kids.map(k => (
-                            <option key={k.id} value={k.id}>{k.avatar_emoji} {k.display_name}</option>
+                            <option key={k.id} value={k.id}>
+                                {k.avatar_emoji} {k.display_name}
+                            </option>
                         ))}
                     </Select>
                 </Field>
 
-
-                {/* Selector de emoji para la meta */}
                 <Field label="Emoji de la meta">
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                         {EMOJIS.map(e => (
-                            <button
-                                key={e}
-                                onClick={() => set('emoji', e)}
-                                style={{
-                                    width: 36, height: 36, borderRadius: 8, fontSize: 18,
-                                    border: `2px solid ${f.emoji === e ? 'var(--blue)' : 'var(--border)'}`,
-                                    background: f.emoji === e ? 'var(--blue)18' : 'transparent',
-                                    cursor: 'pointer',
-                                }}
-                            >
-                                {e}
-                            </button>
+                            <button key={e} onClick={() => setF(p => ({ ...p, emoji: e }))} style={{
+                                width: 36, height: 36, borderRadius: 8, fontSize: 20,
+                                border: `2px solid ${f.emoji === e ? 'var(--blue)' : 'var(--border)'}`,
+                                background: f.emoji === e ? 'var(--blue)12' : 'transparent', cursor: 'pointer',
+                            }}>{e}</button>
                         ))}
                     </div>
                 </Field>
 
-                {/* Selector de color */}
-                <Field label={t.color}>
-                    <ColorPicker colors={COLORS} selected={f.color} onChange={c => set('color', c)} />
+                <Field label="Color">
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {COLORS.map(c => (
+                            <div key={c} onClick={() => setF(p => ({ ...p, color: c }))} style={{
+                                width: 26, height: 26, borderRadius: 8, background: c, cursor: 'pointer',
+                                border: f.color === c ? '3px solid #fff' : '3px solid transparent',
+                                transition: 'border .1s',
+                            }} />
+                        ))}
+                    </div>
                 </Field>
 
-                <Field label="Nombre de la meta">
-                    <Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="Nintendo Switch" />
+                <Field label="Nombre de la meta *">
+                    <Input value={f.name} onChange={e => setF(p => ({ ...p, name: e.target.value }))}
+                        placeholder="Nintendo Switch, Bicicleta nueva..." />
                 </Field>
 
-                <Field label="Monto objetivo (CAD)">
-                    <Input type="number" value={f.target_amount} onChange={e => set('target_amount', e.target.value)} placeholder="350" min="0" />
+                <Field label="Monto objetivo (CAD) *">
+                    <Input type="number" value={f.target_amount}
+                        onChange={e => setF(p => ({ ...p, target_amount: e.target.value }))}
+                        placeholder="350" min="0" />
                 </Field>
 
-                <Field label="Mensaje de ánimo">
-                    <Input value={f.reward_text} onChange={e => set('reward_text', e.target.value)} placeholder="¡Tú puedes lograrlo! 💪" />
+                <Field label="Mensaje de ánimo (opcional)">
+                    <Input value={f.reward_text}
+                        onChange={e => setF(p => ({ ...p, reward_text: e.target.value }))}
+                        placeholder="¡Tú puedes lograrlo! 💪" />
                 </Field>
 
-                <ModalFooter
-                    onClose={closeModal}
-                    onSave={handleSave}
-                    saveLabel={t.save}
-                    cancelLabel={t.cancel}
-                    disabled={!f.kid_profile || !f.name || !f.target_amount}
-                />
-            </div>
-        </Modal>
-
-
-    )
-}
-
-// ── ImportCSVModal — Importar transacciones desde CSV ─────────────────────────
-/**
-
-- Permite importar transacciones desde un archivo CSV exportado del banco.
-- 
-- Bancos canadienses que exportan en CSV compatible:
-- - TD Bank: Activity > Download > CSV
-- - RBC: Transaction History > Download
-- - Scotiabank: Account Activity > Export
-- 
-- Formato esperado: fecha,descripción,monto
-- (la primera fila de encabezados se ignora automáticamente)
-- 
-- Las transacciones se importan como 'expense' por defecto.
-- El usuario puede editar individualmente después si es ingreso.
-  */
-export function ImportCSVModal() {
-    const { t, closeModal, setTxns } = useApp()
-    const [preview, setPreview] = useState([])
-    const [fileName, setFileName] = useState('')
-    const [parseError, setParseError] = useState('')
-
-    const handleFile = (e) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        setFileName(file.name)
-        setParseError('')
-
-
-        const reader = new FileReader()
-        reader.onload = (ev) => {
-            try {
-                const lines = (ev.target.result || '').split('\n').filter(Boolean)
-
-                // Detectar y saltar la fila de encabezados
-                const dataLines = lines[0]?.toLowerCase().includes('date') || lines[0]?.toLowerCase().includes('fecha')
-                    ? lines.slice(1)
-                    : lines
-
-                const parsed = dataLines
-                    .map((line, i) => {
-                        // Manejar campos entre comillas (ej: "IGA, Montréal")
-                        const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
-                        return {
-                            id: 'csv-' + i + '-' + Date.now(),
-                            date: cols[0] || toDay(),
-                            description: cols[1] || 'Transacción importada',
-                            amount: parseFloat(cols[2]) || 0,
-                            type: 'expense',
-                            category: 'other_expense',
-                        }
-                    })
-                    .filter(r => r.date && r.description && r.amount !== 0)
-
-                if (parsed.length === 0) {
-                    setParseError('No se encontraron transacciones válidas. Verifica el formato del archivo.')
-                    return
-                }
-
-                setPreview(parsed.slice(0, 5)) // Mostrar primeras 5 como preview
-            } catch {
-                setParseError('Error al leer el archivo. Asegúrate de que sea un CSV válido.')
-            }
-        }
-        reader.readAsText(file, 'UTF-8')
-
-
-    }
-
-    const handleImport = () => {
-        if (!preview.length) return
-        setTxns(prev => [...preview, ...prev])
-        closeModal()
-    }
-
-    return (
-        <Modal title={`📂 ${t.importCSV}`} onClose={closeModal} width={480}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-
-
-                {/* Instrucciones de formato */}
-                <div style={{
-                    fontSize: 12,
-                    color: 'var(--muted)',
-                    background: 'var(--bg)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: 12,
-                    lineHeight: 1.8,
-                }}>
-                    <strong>Formato esperado:</strong><br />
-                    <code>fecha,descripción,monto</code><br />
-                    <code>2025-05-01,IGA Supermercado,320.50</code><br />
-                    <br />
-                    <strong>Bancos compatibles:</strong> TD, RBC, Scotiabank, Desjardins<br />
-                    Usa "Download / Télécharger" en tu banco en línea → selecciona CSV
-                </div>
-
-                {/* Input de archivo */}
-                <Field label="Archivo CSV">
-                    <input
-                        type="file"
-                        accept=".csv,.txt"
-                        onChange={handleFile}
-                        style={{ color: 'var(--text)', fontSize: 13 }}
-                    />
-                    {fileName && (
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                            ✓ {fileName}
-                        </div>
-                    )}
-                </Field>
-
-                {/* Error de parse */}
-                {parseError && (
+                {error && (
                     <div style={{
-                        color: 'var(--red)',
-                        fontSize: 12,
-                        background: 'var(--red)10',
-                        borderRadius: 8,
-                        padding: '8px 12px',
-                    }}>
-                        {parseError}
-                    </div>
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>⚠️ {error}</div>
                 )}
 
-                {/* Vista previa de las primeras filas */}
-                {preview.length > 0 && (
-                    <div>
-                        <div className="lbl">Vista previa ({preview.length} de las primeras filas)</div>
-                        {preview.map((row, i) => (
-                            <div key={i} style={{
-                                fontSize: 11,
-                                color: 'var(--muted)',
-                                padding: '5px 0',
-                                borderBottom: '1px solid var(--border)',
-                                display: 'flex',
-                                gap: 8,
-                            }}>
-                                <span style={{ flexShrink: 0 }}>{row.date}</span>
-                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {row.description}
-                                </span>
-                                <span style={{ color: 'var(--red)', flexShrink: 0 }}>${row.amount}</span>
-                            </div>
-                        ))}
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                            Las transacciones se importarán como "Gasto / Otro gasto". Puedes editar el tipo y categoría después.
-                        </div>
-                    </div>
-                )}
-
-                <ModalFooter
-                    onClose={closeModal}
-                    onSave={handleImport}
-                    saveLabel={`${t.csvImport} (${preview.length} transacciones)`}
+                <ModalFooter onClose={handleClose} onSave={handleSave}
+                    saveLabel={saving ? 'Guardando...' : 'Crear meta'}
                     cancelLabel={t.cancel}
-                    disabled={preview.length === 0}
-                />
+                    disabled={saving || !f.kid_profile || !f.name.trim() || !f.target_amount} />
             </div>
         </Modal>
-
-
     )
 }

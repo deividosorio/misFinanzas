@@ -28,188 +28,156 @@
 //   Chip     → botón tipo pill con color activo/inactivo
 //   Btn      → botón primario/ghost para los toggles de modo
 // ─────────────────────────────────────────────────────────────────────────────
+// src/components/layout/FilterBar.jsx
+// ─────────────────────────────────────────────────────────────────────────────
+// v4: Selector de cuenta UNIFICADO
+// Ya no hay selPm (forma de pago) separado.
+// Un solo filtro de cuenta muestra activos y crédito en la misma lista.
+// ─────────────────────────────────────────────────────────────────────────────
 import { useApp } from '../../context/AppContext'
 import Btn from '../ui/Btn'
-import { Chip } from '../ui/Badges'
+import { ACCOUNT_SUBTYPES, CREDIT_SUBTYPES } from '../../lib/constants'
 
-// Tabs que muestran el selector de período
-const PERIOD_TABS = ['dashboard', 'statements']
+const TABS_WITH_PERIOD = ['dashboard', 'statements']
 
 export default function FilterBar() {
   const {
     t, tab,
-    accounts, cards,
+    accounts,
     selAcc, setSelAcc,
-    selPm,  setSelPm,
-    pMode,  setPMode,
+    pMode, setPMode,
     selMonth, setSelMonth,
-    rFrom,  setRFrom,
-    rTo,    setRTo,
+    rFrom, setRFrom,
+    rTo, setRTo,
     applyFilter,
   } = useApp()
 
-  // ¿Mostrar el selector de período en este tab?
-  const showPeriod = PERIOD_TABS.includes(tab)
+  const showPeriod = TABS_WITH_PERIOD.includes(tab)
 
-  // Estilos para los inputs de fecha (reutilizados en dos lugares)
-  const DATE_INPUT_STYLE = {
-    background:   'var(--bg)',
-    border:       '1px solid var(--border)',
+  const DATE_INPUT = {
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
     borderRadius: 8,
-    padding:      '6px 10px',
-    color:        'var(--text)',
-    fontSize:     12,
-    outline:      'none',
-    fontFamily:   'var(--font-body)',
+    padding: '6px 10px',
+    color: 'var(--text)',
+    fontSize: 12,
+    outline: 'none',
+    fontFamily: 'var(--font-body)',
   }
+
+  // Separar para mostrar con etiquetas
+  const assetAccounts = accounts.filter(a => a.is_active && !CREDIT_SUBTYPES.includes(a.subtype))
+  const creditAccounts = accounts.filter(a => a.is_active && CREDIT_SUBTYPES.includes(a.subtype))
 
   return (
     <div style={{
-      background:   'var(--surface)',
-      border:       '1px solid var(--border)',
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
       borderRadius: 'var(--radius)',
-      padding:      '10px 14px',
+      padding: '10px 14px',
       marginBottom: 14,
-      display:      'flex',
-      gap:          8,
-      flexWrap:     'wrap',
-      alignItems:   'center',
+      display: 'flex',
+      gap: 8,
+      flexWrap: 'wrap',
+      alignItems: 'center',
     }}>
 
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* SECCIÓN 1: FILTRO DE PERÍODO                                     */}
-      {/* Solo se renderiza en tabs que muestran gráficas temporales        */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
+      {/* ── PERÍODO (solo en tabs con gráficas) ── */}
       {showPeriod && (
         <>
-          {/* Toggle: Mes | Rango */}
-          <div style={{ display:'flex', gap:3 }}>
-            <Btn
-              size="xs"
-              variant={pMode === 'month' ? 'primary' : 'ghost'}
-              onClick={() => setPMode('month')}
-            >
+          <div style={{ display: 'flex', gap: 3 }}>
+            <Btn size="xs" variant={pMode === 'month' ? 'primary' : 'ghost'} onClick={() => setPMode('month')}>
               {t.selectMonth}
             </Btn>
-            <Btn
-              size="xs"
-              variant={pMode === 'range' ? 'primary' : 'ghost'}
-              onClick={() => setPMode('range')}
-            >
+            <Btn size="xs" variant={pMode === 'range' ? 'primary' : 'ghost'} onClick={() => setPMode('range')}>
               {t.customRange}
             </Btn>
           </div>
 
-          {/* Input de período según el modo activo */}
           {pMode === 'month' ? (
-            /* Modo Mes: un solo input type="month" nativo del browser */
-            <input
-              type="month"
-              value={selMonth}
+            <input type="month" value={selMonth}
               onChange={e => setSelMonth(e.target.value)}
-              style={{ ...DATE_INPUT_STYLE, width:150 }}
-            />
+              style={{ ...DATE_INPUT, width: 150 }} />
           ) : (
-            /* Modo Rango: dos inputs de fecha con flecha entre ellos */
-            <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-              <span style={{ fontSize:11, color:'var(--muted)' }}>{t.from}</span>
-              <input
-                type="date"
-                value={rFrom}
-                onChange={e => setRFrom(e.target.value)}
-                style={{ ...DATE_INPUT_STYLE, width:132 }}
-              />
-              <span style={{ fontSize:11, color:'var(--muted)' }}>→</span>
-              <input
-                type="date"
-                value={rTo}
-                onChange={e => setRTo(e.target.value)}
-                style={{ ...DATE_INPUT_STYLE, width:132 }}
-              />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{t.from}</span>
+              <input type="date" value={rFrom} onChange={e => setRFrom(e.target.value)}
+                style={{ ...DATE_INPUT, width: 132 }} />
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>→</span>
+              <input type="date" value={rTo} onChange={e => setRTo(e.target.value)}
+                style={{ ...DATE_INPUT, width: 132 }} />
             </div>
           )}
 
-          {/* Botón Aplicar — dispara loadData() con el nuevo período */}
-          <Btn size="xs" variant="primary" onClick={applyFilter}>
-            {t.apply}
-          </Btn>
-
-          {/* Separador visual entre período y cuenta/tarjeta */}
-          <Divider />
+          <Btn size="xs" variant="primary" onClick={applyFilter}>{t.apply}</Btn>
+          <VDiv />
         </>
       )}
 
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* SECCIÓN 2: CHIPS DE CUENTA                                       */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-
-      {/* "Todas" — resetea ambos filtros */}
-      <Chip
-        active={!selAcc && !selPm}
-        onClick={() => { setSelAcc(null); setSelPm(null) }}
+      {/* ── CHIPS DE CUENTA UNIFICADOS ── */}
+      {/* Chip "Todas" */}
+      <AccountChip
+        active={!selAcc}
+        color={null}
+        onClick={() => setSelAcc(null)}
       >
         {t.allAccounts}
-      </Chip>
+      </AccountChip>
 
-      {/* Un chip por cada cuenta bancaria registrada */}
-      {accounts.map(account => (
-        <Chip
-          key={account.id}
-          active={selAcc === account.id}
-          color={account.color}
-          onClick={() => {
-            // Toggle: si ya estaba activa, desactivar. Si no, activar y limpiar tarjeta.
-            setSelAcc(selAcc === account.id ? null : account.id)
-            setSelPm(null)
-          }}
+      {/* Cuentas de activo */}
+      {assetAccounts.map(a => (
+        <AccountChip
+          key={a.id}
+          active={selAcc === a.id}
+          color={a.color}
+          onClick={() => setSelAcc(selAcc === a.id ? null : a.id)}
         >
-          ⬤ {account.name}
-        </Chip>
+          {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+        </AccountChip>
       ))}
 
-      {/* Separador antes de tarjetas (solo si hay tarjetas de crédito) */}
-      {cards.filter(c => c.type === 'credit_card' || c.credit_limit).length > 0 && (
-        <>
-          <Divider />
+      {/* Separador si hay tarjetas */}
+      {creditAccounts.length > 0 && <VDiv />}
 
-          {/* ══════════════════════════════════════════════════════════════ */}
-          {/* SECCIÓN 3: CHIPS DE TARJETA                                  */}
-          {/* ══════════════════════════════════════════════════════════════ */}
-          {cards
-            .filter(c => c.type === 'credit_card' || c.credit_limit)
-            .map(card => (
-              <Chip
-                key={card.id}
-                active={selPm === card.id}
-                color={card.color}
-                onClick={() => {
-                  setSelPm(selPm === card.id ? null : card.id)
-                  setSelAcc(null)
-                }}
-              >
-                💳 {card.name}
-              </Chip>
-            ))
-          }
-        </>
-      )}
+      {/* Tarjetas de crédito */}
+      {creditAccounts.map(a => (
+        <AccountChip
+          key={a.id}
+          active={selAcc === a.id}
+          color={a.color}
+          onClick={() => setSelAcc(selAcc === a.id ? null : a.id)}
+        >
+          💳 {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
+        </AccountChip>
+      ))}
     </div>
   )
 }
 
-// ── Divider — Separador visual vertical ──────────────────────────────────────
-/**
- * Línea vertical usada para separar las secciones del FilterBar.
- * Componente propio (no exportado) para mantener el código limpio.
- */
-function Divider() {
+// Chip de cuenta
+function AccountChip({ active, color, children, onClick }) {
   return (
-    <div style={{
-      width:      1,
-      height:     20,
-      background: 'var(--border)',
-      margin:     '0 2px',
-      flexShrink: 0,
-    }} />
+    <button onClick={onClick} style={{
+      border: 'none',
+      borderRadius: 20,
+      padding: '5px 12px',
+      cursor: 'pointer',
+      fontFamily: 'var(--font-body)',
+      fontSize: 12,
+      fontWeight: 600,
+      whiteSpace: 'nowrap',
+      lineHeight: 1.4,
+      transition: 'all .15s',
+      background: active ? (color || 'var(--blue)') : 'var(--border)',
+      color: active ? '#fff' : (color || 'var(--muted)'),
+      outline: active ? `1px solid ${color || 'var(--blue)'}44` : 'none',
+    }}>
+      {children}
+    </button>
   )
+}
+
+// Separador vertical
+function VDiv() {
+  return <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px', flexShrink: 0 }} />
 }
