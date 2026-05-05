@@ -32,8 +32,7 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  CartesianGrid,
-  defs,
+  CartesianGrid
 } from 'recharts'
 
 // Estilo del tooltip — consistente en toda la app
