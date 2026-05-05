@@ -55,7 +55,7 @@ export default function Family() {
     isFamilyAdmin, pendingMembers,
     setMemberStatus, setMemberRole,
     assetAccounts, creditAccounts,
-    modal, openModal,
+    modal, openModal, closeModal
   } = useApp()
 
   const [activeTab, setActiveTab] = useState('members')
@@ -132,10 +132,10 @@ export default function Family() {
         />
       )}
 
-      {/* Modal unificado de cuenta — v4 */}
+      {/* Modal unificado de cuenta — v4
       {modal === 'account' && (
         <AccountModal onClose={closeModal} />
-      )}
+      )} */}
     </div>
   )
 }

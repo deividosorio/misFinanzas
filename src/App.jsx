@@ -60,9 +60,6 @@
 //   Se monta aquí para garantizar z-index correcto.
 //   Permite: cambiar idioma, tema, avatar, nombre, contraseña, cerrar sesión.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// src/App.jsx
-// ─────────────────────────────────────────────────────────────────────────────
 // CAMBIOS v4:
 //   - AccModal y PmModal ELIMINADOS → reemplazados por AccountModal unificado
 //   - modal === 'acc' y modal === 'pm' → modal === 'account'
