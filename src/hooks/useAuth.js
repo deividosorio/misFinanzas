@@ -55,6 +55,10 @@ export function useAuth () {
   // Flag para evitar race conditions (solo un resolveProfile a la vez)
   const resolvingRef = useRef(false)
 
+  // Ref para manejar el timer de inactividad
+  const idleTimerRef = useRef(null)
+  const IDLE_LIMIT = 5 * 60 * 1000 // 5 minutos
+
   // ── Funciones Internas ──────────────────────────────────────────────────
 
   /**
@@ -68,6 +72,20 @@ export function useAuth () {
    *   4. Determinar onboarding state según contexto
    */
 
+// Función para resetear el timer de inactividad
+  const resetIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current)
+    }
+
+    idleTimerRef.current = setTimeout(async () => {
+      console.warn('[MiFinanza] Sesión cerrada por inactividad')
+      await logout()
+      hardResetAuth()
+    }, IDLE_LIMIT)
+  }, [logout])
+
+
   const resolveProfile = useCallback(async authUser => {
     if (!supabase || !authUser) {
       // Demo mode or no user
@@ -79,6 +97,12 @@ export function useAuth () {
     }
 
     try {
+      // REVALIDACIÓN DE SESIÓN: Si el token está expirado, forzar logout
+      if (error || !session?.user || isTokenExpired(session)) {
+        await logout()
+        return
+      }
+
       // PASO 1: Intentar cargar perfil
       let { data: prof, error: pErr } = await supabase
         .from('profiles')
@@ -203,7 +227,7 @@ export function useAuth () {
       clearTimeout(safetyTimeout)
 
       // ❌ No hay sesión → reset total
-      if (error || !session?.user) {
+      if (error || !session?.user || isTokenExpired(session)) {
         hardResetAuth()
         return
       }
@@ -229,8 +253,7 @@ export function useAuth () {
     // OBSERVADOR DE CAMBIOS: onAuthStateChange()
     // Solo procesa cambios DESPUÉS de que getSession() haya resuelto.
     // Ignora INITIAL_SESSION (ya manejado por getSession).
-    const {
-      data: { subscription }
+    const { data: { subscription }
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (cancelled) return
 
@@ -240,6 +263,12 @@ export function useAuth () {
       // LIMPIEZA DE CACHÉ: Evitar datos residuales en cambios de sesión en PWA
       if ('caches' in window) {
         caches.keys().then(keys => keys.forEach(k => caches.delete(k)))
+      }
+
+      // REVALIDACIÓN DE SESIÓN: Si el token está expirado, forzar logout
+      if (session && isTokenExpired(session)) {
+        await logout()
+        return
       }
 
       // Si estamos en el proceso inicial, ignorar SIGNED_IN
@@ -282,6 +311,29 @@ export function useAuth () {
       subscription.unsubscribe()
     }
   }, [resolveProfile])
+
+  // ── EFECTO: Manejar inactividad del usuario ─────────────────────────────
+  useEffect(() => { 
+    if (!user) return
+
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']
+
+    const handleActivity = () => { resetIdleTimer() }
+
+    events.forEach(event => window.addEventListener(event, handleActivity))
+
+    // iniciar timer al montar
+    resetIdleTimer()
+
+    return () => {
+      events.forEach(event =>
+        window.removeEventListener(event, handleActivity)
+      )
+
+      if (idleTimerRef.current) { clearTimeout(idleTimerRef.current) }
+    }
+  }, [user, resetIdleTimer])
+
 
   // ── Métodos Públicos ────────────────────────────────────────────────────
 
@@ -448,14 +500,21 @@ export function useAuth () {
     [reloadProfile]
   )
 
+  const isTokenExpired = session => {
+    if (!session?.expires_at) return true
+
+    const now = Math.floor(Date.now() / 1000)
+    return session.expires_at <= now
+  }
+
   const hardResetAuth = () => {
     console.warn('[MiFinanza] HARD RESET AUTH — limpiando todo')
 
-    setSession(null)
+    setUser(null)
     setProfile(null)
     setFamily(null)
     setOnboardingState('unauthenticated')
-    setAuthLoading(false)
+    setLoading(false)
 
     // Opcional: limpiar storage local
     localStorage.removeItem('supabase.auth.token')
@@ -463,6 +522,12 @@ export function useAuth () {
 
     localStorage.clear()
     sessionStorage.clear()
+
+    // cookies (opcional)
+    document.cookie.split(';').forEach(cookie => {
+      const name = cookie.split('=')[0].trim()
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/`
+    })
   }
 
   return {
