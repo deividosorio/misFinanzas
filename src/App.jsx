@@ -121,8 +121,6 @@ function AppInner() {
   const { onboardingState, isDemoMode, tab, modal, isKid, t } = useApp()
   const [showProfile, setShowProfile] = useState(false)
 
-  console.log('[App] onboardingState:', onboardingState, 'isKid:', isKid ) // DEBUG
-
   // 1. Cargando
   if (onboardingState === 'loading') return <LoadingScreen t={t} />
 
