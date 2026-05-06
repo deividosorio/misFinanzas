@@ -190,7 +190,7 @@ export default function Auth() {
 
 // ── LoginScreen ───────────────────────────────────────────────────────────────
 function LoginScreen({ onNavigate }) {
-    const { reloadProfile, isDemoMode } = useApp()
+    const { reloadProfile } = useApp()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
@@ -200,23 +200,16 @@ function LoginScreen({ onNavigate }) {
         if (!email.trim()) { setError('Escribe tu email'); return }
         if (!password) { setError('Escribe tu contraseña'); return }
 
-        setLoading(false); setError('')
-
-        // MODO DEMO: simular login exitoso
-        if (isDemoMode || !supabase) {
-            setTimeout(() => {
-                // En demo, App.jsx ya tiene los datos — recargar el estado
-                window.location.reload()
-            }, 800)
-            return
-        }
+        setLoading(true); setError('')
 
         try {
+            console.log('[MiFinanza] Auth LoginScreen signInWithPassword:', email  ? email.trim() : 'NO EMAIL') 
             const { data, error: signInError } = await supabase.auth.signInWithPassword({
                 email: email.trim(),
                 password,
             })
 
+            console.log('[MiFinanza] signInWithPassword result:', { data, signInError })
             if (signInError) {
                 if (signInError.message.includes('Invalid login') ||
                     signInError.message.includes('invalid_credentials')) {
@@ -317,7 +310,7 @@ function LoginScreen({ onNavigate }) {
 
 // ── RegisterScreen ────────────────────────────────────────────────────────────
 function RegisterScreen({ onNavigate }) {
-    const { reloadProfile, isDemoMode } = useApp()
+    const { reloadProfile } = useApp()
     const [name, setName] = useState('')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
@@ -333,11 +326,6 @@ function RegisterScreen({ onNavigate }) {
         if (password !== confirm) { setError('Las contraseñas no coinciden'); return }
 
         setLoading(true); setError('')
-
-        if (isDemoMode || !supabase) {
-            setTimeout(() => onNavigate('sent'), 1000)
-            return
-        }
 
         try {
             const { data, error: signUpError } = await supabase.auth.signUp({

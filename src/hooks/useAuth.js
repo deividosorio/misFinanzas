@@ -47,10 +47,8 @@ export function useAuth () {
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [family, setFamily] = useState(null)
-  const [loading, setLoading] = useState(!supabase) // false si estamos en demo mode
-  const [onboardingState, setOnboardingState] = useState(
-    !supabase ? 'ready' : 'loading'
-  )
+  const [loading, setLoading] = useState(true)
+  const [onboardingState, setOnboardingState] = useState('loading')
 
   // Flag para evitar race conditions (solo un resolveProfile a la vez)
   const resolvingRef = useRef(false)
@@ -73,14 +71,12 @@ export function useAuth () {
    */
 
   const resolveProfile = useCallback(async authUser => {
-    if (!supabase || !authUser) {
-      // Demo mode or no user
+    // No user
       if (!authUser) {
         setOnboardingState('unauthenticated')
         setLoading(false)
-      }
       return
-    }
+      }
 
     try {
       // PASO 1: Intentar cargar perfil
@@ -186,10 +182,9 @@ export function useAuth () {
     }
   }, [])
 
+
   // ── EFECTO: Inicializar autenticación ────────────────────────────────
   useEffect(() => {
-    if (!supabase) return // Demo mode — no hacer nada
-
     let cancelled = false
 
     // TIMEOUT DE SEGURIDAD: 5 segundos máximo para cargar
@@ -224,9 +219,7 @@ export function useAuth () {
     // OBSERVADOR DE CAMBIOS: onAuthStateChange()
     // Solo procesa cambios DESPUÉS de que getSession() haya resuelto.
     // Ignora INITIAL_SESSION (ya manejado por getSession).
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (cancelled) return
 
       // Ignorar el evento inicial
@@ -288,8 +281,6 @@ export function useAuth () {
 
   const login = useCallback(
     async (email, password) => {
-      if (!supabase) return { error: new Error('Modo demo') }
-
       try {
         setLoading(true)
         const { data, error: signInError } =
@@ -325,8 +316,6 @@ export function useAuth () {
 
   const register = useCallback(
     async (name, email, password) => {
-      if (!supabase) return { error: new Error('Modo demo') }
-
       try {
         setLoading(true)
         const { data, error: signUpError } = await supabase.auth.signUp({
@@ -374,40 +363,39 @@ export function useAuth () {
     setFamily(null)
     setOnboardingState('unauthenticated')
     setLoading(false)
+    hardResetAuth()
   }, [])
 
   const reloadProfile = useCallback(async () => {
-    if (!supabase) return
-
+    console.log('[MiFinanza] useAuth reloadProfile: recargando perfil...')
     try {
-      const {
-        data: { session },
-        error
-      } = await supabase.auth.getSession()
+      const { data: { session }, error } = await supabase.auth.getSession()
 
+      console.log('[MiFinanza] useAuth reloadProfile: getSession result:', { session, error })
       // ❌ No hay sesión → reset total
-      if (error || !session?.user || isTokenExpired(session)) {
-        hardResetAuth()
+      if (error || !user || !session || isTokenExpired(session)) {
+        console.log('[MiFinanza] useAuth reloadProfile: Session invalida o expirada')
+        await logout()
         return
       }
 
+      console.log('[MiFinanza] useAuth reloadProfile: Found session for user:', session.user)
       setUser(session.user)
       resolvingRef.current = true
       try {
+        console.log('[MiFinanza] useAuth reloadProfile: Resolving profile for user:', session.user)
         await resolveProfile(session.user)
       } finally {
         resolvingRef.current = false
       }
     } catch (err) {
-      console.error('[MiFinanza] reloadProfile error:', err)
+      console.error('[MiFinanza] useAuth reloadProfile: Error reloading profile:', err)
       await logout()
     }
   }, [resolveProfile, logout])
 
   const createFamily = useCallback(
     async (name, currency = 'CAD') => {
-      if (!supabase) return { error: new Error('Modo demo') }
-
       try {
         const { data, error } = await supabase.rpc('rpc_create_family', {
           p_name: name.trim(),
@@ -430,8 +418,6 @@ export function useAuth () {
 
   const joinFamily = useCallback(
     async inviteCode => {
-      if (!supabase) return { error: new Error('Modo demo') }
-
       try {
         const { data, error } = await supabase.rpc('rpc_join_family', {
           p_invite_code: inviteCode.trim().toLowerCase()
