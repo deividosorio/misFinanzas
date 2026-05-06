@@ -373,7 +373,7 @@ export function useAuth () {
 
       console.log('[MiFinanza] useAuth reloadProfile: getSession result:', { session, error })
       // ❌ No hay sesión → reset total
-      if (error || !user || !session || isTokenExpired(session)) {
+      if (error || !session || isTokenExpired(session)) {
         console.log('[MiFinanza] useAuth reloadProfile: Session invalida o expirada')
         await logout()
         return

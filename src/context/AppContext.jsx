@@ -142,7 +142,6 @@ export function AppProvider({ children }) {
   // ── Auth mutations ─────────────────────────────────────────────────────
   const signOut = async () => {
     // Delegate to useAuth hook
-    console.Consolelog('Signing out...')
     await auth.logout()
     // Clear app data
     setMembers([]); setAccounts([]); setTxns([])
