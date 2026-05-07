@@ -230,8 +230,6 @@ function LoginScreen({ onNavigate }) {
             if (data?.session?.user || data?.user) {
                 await reloadProfile()
                 // reloadProfile() llama a resolveProfile() que actualiza onboardingState
-                // App.jsx detecta el cambio y renderiza la pantalla correcta
-                setOnboardingState('ready')  
             }
         } catch (err) {
             console.error('[MiFinanza] handleLogin error:', err)
@@ -352,7 +350,6 @@ function RegisterScreen({ onNavigate }) {
             if (data?.session) {
                 await reloadProfile()
                 setLoading(false)
-                setOnboardingState('ready')  // Forzar estado listo para evitar pantalla 'family_setup'
                 return
             }
 

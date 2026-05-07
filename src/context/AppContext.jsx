@@ -214,6 +214,7 @@ export function AppProvider({ children }) {
       p_opening_balance: acc.opening_balance ? parseFloat(acc.opening_balance) : 0,
       p_notes: acc.notes || null,
     })
+    console.log('[MiFinanza] addAccount result:', { data, error })
     if (!error) await loadData()
     return { data, error }
   }

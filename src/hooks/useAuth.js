@@ -72,11 +72,11 @@ export function useAuth () {
 
   const resolveProfile = useCallback(async authUser => {
     // No user
-      if (!authUser) {
-        setOnboardingState('unauthenticated')
-        setLoading(false)
+    if (!authUser) {
+      setOnboardingState('unauthenticated')
+      setLoading(false)
       return
-      }
+    }
 
     try {
       // PASO 1: Intentar cargar perfil
@@ -182,7 +182,6 @@ export function useAuth () {
     }
   }, [])
 
-
   // ── EFECTO: Inicializar autenticación ────────────────────────────────
   useEffect(() => {
     let cancelled = false
@@ -219,7 +218,9 @@ export function useAuth () {
     // OBSERVADOR DE CAMBIOS: onAuthStateChange()
     // Solo procesa cambios DESPUÉS de que getSession() haya resuelto.
     // Ignora INITIAL_SESSION (ya manejado por getSession).
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (cancelled) return
 
       // Ignorar el evento inicial
@@ -357,39 +358,56 @@ export function useAuth () {
   )
 
   const logout = useCallback(async () => {
-    if (supabase) await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
-    setFamily(null)
-    setOnboardingState('unauthenticated')
-    setLoading(false)
+    try {
+      await supabase.auth.signOut()
+    } catch (err) {
+      console.error('logout error:', err)
+    }
+
     hardResetAuth()
-  }, [])
+  }, [hardResetAuth])
 
   const reloadProfile = useCallback(async () => {
     console.log('[MiFinanza] useAuth reloadProfile: recargando perfil...')
     try {
-      const { data: { session }, error } = await supabase.auth.getSession()
+      const {
+        data: { session },
+        error
+      } = await supabase.auth.getSession()
 
-      console.log('[MiFinanza] useAuth reloadProfile: getSession result:', { session, error })
+      console.log('[MiFinanza] useAuth reloadProfile: getSession result:', {
+        session,
+        error
+      })
       // ❌ No hay sesión → reset total
       if (error || !session || isTokenExpired(session)) {
-        console.log('[MiFinanza] useAuth reloadProfile: Session invalida o expirada')
+        console.log(
+          '[MiFinanza] useAuth reloadProfile: Session invalida o expirada'
+        )
         await logout()
         return
       }
 
-      console.log('[MiFinanza] useAuth reloadProfile: Found session for user:', session.user)
+      console.log(
+        '[MiFinanza] useAuth reloadProfile: Found session for user:',
+        session.user
+      )
       setUser(session.user)
       resolvingRef.current = true
       try {
-        console.log('[MiFinanza] useAuth reloadProfile: Resolving profile for user:', session.user)
+        console.log(
+          '[MiFinanza] useAuth reloadProfile: Resolving profile for user:',
+          session.user
+        )
         await resolveProfile(session.user)
       } finally {
         resolvingRef.current = false
       }
     } catch (err) {
-      console.error('[MiFinanza] useAuth reloadProfile: Error reloading profile:', err)
+      console.error(
+        '[MiFinanza] useAuth reloadProfile: Error reloading profile:',
+        err
+      )
       await logout()
     }
   }, [resolveProfile, logout])
@@ -443,28 +461,22 @@ export function useAuth () {
     return session.expires_at <= now
   }
 
-  const hardResetAuth = () => {
-    console.warn('[MiFinanza] HARD RESET AUTH — limpiando todo')
+  const hardResetAuth = useCallback(() => {
+    console.warn('[MiFinanza] HARD RESET AUTH')
 
     setUser(null)
     setProfile(null)
     setFamily(null)
-    setOnboardingState('unauthenticated')
+
     setLoading(false)
+    setOnboardingState('unauthenticated')
 
-    // Opcional: limpiar storage local
-    localStorage.removeItem('supabase.auth.token')
+    // SOLO tus claves
     localStorage.removeItem('mifinanza-cache')
+    localStorage.removeItem('mifinanza-ui')
 
-    localStorage.clear()
-    sessionStorage.clear()
-
-    // cookies (opcional)
-    document.cookie.split(';').forEach(cookie => {
-      const name = cookie.split('=')[0].trim()
-      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/`
-    })
-  }
+    sessionStorage.removeItem('mifinanza-temp')
+  }, [])
 
   // Función para resetear el timer de inactividad
   const resetIdleTimer = useCallback(() => {
