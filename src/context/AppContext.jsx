@@ -93,6 +93,7 @@ export function AppProvider({ children }) {
 
   // ── loadData ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
+    console.log('[MiFinanza] Loading data for family:', family?.id, 'and user:', profile?.id)
     if (!family?.id) return
     setDataLoading(true)
     const fid = family.id
@@ -112,7 +113,7 @@ export function AppProvider({ children }) {
           ? (r.value.data ?? [])
           : []
 
-      const [ accs, txnsD, debtsD, recD, goalsD, kgD, membsD ] = results.map(safe)
+      const [accs, txnsD, debtsD, recD, goalsD, kgD, membsD] = results.map(safe)
 
       if (accs) setAccounts(accs)
       if (txnsD) setTxns(txnsD)
@@ -241,12 +242,14 @@ export function AppProvider({ children }) {
   const addDebt = async (debt) => {
     console.log('[MiFinanza] Adding debt:', debt)
     const { data, error } = await supabase.from('debts').insert({
-      family_id: family.id, created_by: profile?.id, ...debt,
+      family_id: family.id, created_by: profile?.id, linked_account_id: debt.linked_account_id || null,
+      name: debt.name, category: debt.category, notes: debt.notes || null,
       total_amount: parseFloat(debt.total_amount), paid_amount: parseFloat(debt.paid_amount || 0),
       monthly_payment: debt.monthly_payment ? parseFloat(debt.monthly_payment) : null,
       interest_rate: parseFloat(debt.interest_rate || 0),
     }).select().single()
     if (!error) await loadData()
+      console.log('[MiFinanza] addDebt result:', { data, error })
     return { data, error }
   }
 
@@ -345,7 +348,7 @@ export function AppProvider({ children }) {
     if (!error) await loadData(); return { error }
   }
 
-  const getAccount = (id) => setAssetAccounts.find(a => a.id === id)
+  const getAccount = (id) => accounts.find(a => a.id === id)
   const getMember = (id) => members.find(m => m.id === id)
   const openModal = (name) => setModal(name)
   const closeModal = () => setModal(null)

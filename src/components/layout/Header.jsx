@@ -4,7 +4,6 @@
 //
 // CONTENIDO:
 //   Izquierda → Logo con gradiente + nombre de la familia + badge de plan
-//               + indicador "DEMO" cuando no hay Supabase configurado
 //   Derecha   → Badge de miembros pendientes (solo admin/owner)
 //               + Selector de idioma (ES / EN / FR)
 //               + Avatar del usuario (clic abre ProfileModal)
@@ -25,8 +24,7 @@ import ProfileModal from '../../pages/ProfileModal'
 
 export default function Header() {
   const {
-    t, lang, setLang,
-    profile, family, isDemoMode,
+    t, lang, setLang, profile, family, 
     isFamilyAdmin, pendingMembers,
     setTab,
   } = useApp()
@@ -71,7 +69,7 @@ export default function Header() {
             {t.appName}
           </span>
 
-          {/* Nombre de familia + plan + indicador demo */}
+          {/* Nombre de familia + plan */}
           {family && (
             <div style={{ display:'flex', alignItems:'center', gap:7 }}>
               <span style={{ color:'var(--muted)', fontSize:14, lineHeight:1 }}>·</span>
@@ -85,19 +83,6 @@ export default function Header() {
                 {family.name}
               </span>
               <PlanBadge plan={family.plan} />
-              {isDemoMode && (
-                <span style={{
-                  fontSize:     10,
-                  fontWeight:   700,
-                  color:        '#fbbf24',
-                  background:   '#fbbf2420',
-                  borderRadius: 20,
-                  padding:      '2px 8px',
-                  letterSpacing:0.5,
-                }}>
-                  DEMO
-                </span>
-              )}
             </div>
           )}
         </div>

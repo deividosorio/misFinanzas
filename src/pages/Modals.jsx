@@ -656,13 +656,8 @@ export function TxModal({ onClose }) {
  * La cuenta vinculada es la cuenta de débito desde donde se descuenta el pago.
  */
 export function DebtModal({ onClose }) {
-    const { t, accounts, addDebt, closeModal } = useApp()
+    const { t, assetAccounts, addDebt, closeModal } = useApp()
     const handleClose = onClose || closeModal
-
-    // Solo cuentas de activo para vincular el pago de la deuda
-    const debitAccounts = accounts.filter(a =>
-        a.is_active && !isCreditSubtype(a.subtype)
-    )
 
     const [f, setF] = useState({
         name: '',
@@ -796,7 +791,7 @@ export function DebtModal({ onClose }) {
                         onChange={e => setF(p => ({ ...p, linked_account_id: e.target.value }))}
                     >
                         <option value="">— Seleccionar cuenta (opcional) —</option>
-                        {debitAccounts.map(a => (
+                        {assetAccounts.map(a => (
                             <option key={a.id} value={a.id}>
                                 {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
                                 {a.owner_name ? ` (${a.owner_name})` : ''}
