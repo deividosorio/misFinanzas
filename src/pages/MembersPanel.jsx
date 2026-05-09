@@ -38,7 +38,7 @@ const ROLE_LABELS = {
 }
 
 export default function MembersPanel() {
-    const { t, profile, members, family, reload, isFamilyAdmin, isDemoMode } = useApp()
+    const { t, profile, members, family, reload, isFamilyAdmin } = useApp()
     const [loading, setLoading] = useState(null)  // ID del miembro en procesamiento
     const [error, setError] = useState('')
 
@@ -59,7 +59,7 @@ export default function MembersPanel() {
         setLoading(memberId)
         setError('')
         try {
-            if (!isDemoMode && supabase) {
+            if (supabase) {
                 const { error } = await supabase.rpc('rpc_set_member_status', {
                     p_member_id: memberId,
                     p_status: status,
@@ -79,7 +79,7 @@ export default function MembersPanel() {
         setLoading(memberId)
         setError('')
         try {
-            if (!isDemoMode && supabase) {
+            if (supabase) {
                 const { error } = await supabase.rpc('rpc_set_member_role', {
                     p_member_id: memberId,
                     p_role: role,

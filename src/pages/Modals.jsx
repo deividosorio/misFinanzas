@@ -806,7 +806,7 @@ export function DebtModal({ onClose }) {
                     <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
                         La cuenta desde donde se descuentan los pagos mensuales
                     </div>
-                </Field>
+                </Field> 
 
                 <Field label="Notas (opcional)">
                     <Input

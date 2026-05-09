@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { supabase } from '../lib/supabase'
 import T from '../lib/translations'
-import { CREDIT_SUBTYPES, thisMo, toDay } from '../lib/constants'
+import { CREDIT_SUBTYPES, ASSET_SUBTYPES, thisMo, toDay } from '../lib/constants'
 import { useAuth } from '../hooks/useAuth'
 
 // ── Contexto ────────────────────────────────────────────────────────────────
@@ -71,12 +71,12 @@ export function AppProvider({ children }) {
   const kids = members.filter(m => m.is_kid)
   const pendingMembers = members.filter(m => m.status === 'pending')
 
-  const assetAccounts = useMemo(() =>
-    accounts.filter(a => !CREDIT_SUBTYPES.includes(a.subtype))
-    , [accounts])
-
   const creditAccounts = useMemo(() =>
     accounts.filter(a => CREDIT_SUBTYPES.includes(a.subtype))
+    , [accounts])
+
+  const assetAccounts = useMemo(() =>
+    accounts.filter(a => ASSET_SUBTYPES.includes(a.subtype))
     , [accounts])
 
   const filteredTxns = useMemo(() =>
@@ -89,11 +89,11 @@ export function AppProvider({ children }) {
     , [txns, af, selAcc])
 
   // Auth is now handled by useAuth hook — no local effect needed
-
   // Auth functions delegated to useAuth hook (see above)
 
   // ── loadData ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
+    if (!family?.id) return
     setDataLoading(true)
     const fid = family.id
     try {
@@ -106,8 +106,14 @@ export function AppProvider({ children }) {
         supabase.from('kids_goals').select('*').eq('family_id', fid),
         supabase.from('profiles').select('*').eq('family_id', fid),
       ])
-      const [accs, txnsD, debtsD, recD, goalsD, kgD, membsD] =
-        results.map(r => r.status === 'fulfilled' ? r.value.data : null)
+
+      const safe = r =>
+        r.status === 'fulfilled' && !r.value.error
+          ? (r.value.data ?? [])
+          : []
+
+      const [ accs, txnsD, debtsD, recD, goalsD, kgD, membsD ] = results.map(safe)
+
       if (accs) setAccounts(accs)
       if (txnsD) setTxns(txnsD)
       if (debtsD) setDebts(debtsD)
@@ -206,7 +212,7 @@ export function AppProvider({ children }) {
   // ── Cuentas ────────────────────────────────────────────────────────────
   const addAccount = async (acc) => {
     if (!isFamilyAdmin) return { error: new Error('Solo el admin puede crear cuentas') }
-   const { data, error } = await supabase.rpc('rpc_add_account', {
+    const { data, error } = await supabase.rpc('rpc_add_account', {
       p_name: acc.name, p_subtype: acc.subtype,
       p_owner_profile: acc.owner_profile || null, p_color: acc.color || '#4f7cff',
       p_institution: acc.institution || null, p_last_four: acc.last_four || null,
@@ -233,6 +239,7 @@ export function AppProvider({ children }) {
 
   // ── Deudas ─────────────────────────────────────────────────────────────
   const addDebt = async (debt) => {
+    console.log('[MiFinanza] Adding debt:', debt)
     const { data, error } = await supabase.from('debts').insert({
       family_id: family.id, created_by: profile?.id, ...debt,
       total_amount: parseFloat(debt.total_amount), paid_amount: parseFloat(debt.paid_amount || 0),
@@ -338,15 +345,15 @@ export function AppProvider({ children }) {
     if (!error) await loadData(); return { error }
   }
 
-  const getAccount = (id) => accounts.find(a => a.id === id)
+  const getAccount = (id) => setAssetAccounts.find(a => a.id === id)
   const getMember = (id) => members.find(m => m.id === id)
   const openModal = (name) => setModal(name)
   const closeModal = () => setModal(null)
 
   const ctx = {
-    session, profile, family, members, 
+    session, profile, family, members, accounts,
     onboardingState, signOut, updateProfile, createFamily, joinFamily, reloadProfile,
-    accounts, assetAccounts, creditAccounts, debts, recurring, txns,
+    assetAccounts, creditAccounts, debts, recurring, txns,
     goals, kidsGoals, summary, netWorth, dataLoading, filteredTxns,
     t, lang, setLang, tab, setTab,
     isKid, isOwner, isFamilyAdmin, kids, pendingMembers,
@@ -362,7 +369,7 @@ export function AppProvider({ children }) {
     addKidGoal, depositKidGoal,
     setMemberStatus, setMemberRole,
     getAccount, getMember, reload: loadData,
-    setAccounts, setDebts, setRecurring, setTxns, setGoals, setKidsGoals, setMembers,
+    setDebts, setRecurring, setTxns, setGoals, setKidsGoals, setMembers,
   }
 
   return <AppCtx.Provider value={ctx}>{children}</AppCtx.Provider>

@@ -32,7 +32,6 @@
 //     rpc_balance_sheet(date)
 //     rpc_income_statement(from, to)
 //     rpc_cash_flow(from, to)
-//   En modo demo, se calculan aproximaciones desde los datos de demoData.js.
 // ─────────────────────────────────────────────────────────────────────────────
 // src/pages/Statements.jsx
 // ─────────────────────────────────────────────────────────────────────────────

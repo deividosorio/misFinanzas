@@ -25,19 +25,12 @@
 //   super_saver    → Completó 3 o más metas
 //   big_saver      → Ahorró $500 CAD en total
 //
-// En modo demo, los badges se muestran hardcodeados en demoData.js.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { Card, Btn, SectionHeader, ProgressBar, Empty } from '../components/ui/index'
 import { BADGE_META } from '../lib/constants'
 import { fmt, pct } from '../lib/constants'
-
-// Badges de demo para Mateo (user-3) — en producción vienen de kids_badges table
-const DEMO_BADGES = {
-    'demo-user-3': ['first_goal', 'halfway'],
-    'demo-user-4': ['first_goal', 'halfway', 'goal_completed', 'super_saver'],
-}
 
 // ── Componente principal ──────────────────────────────────────────────────────
 /**
@@ -50,7 +43,7 @@ export default function Kids({ parentView = false }) {
     // Vista del niño autenticado
     if (!parentView) {
         const myGoals = kidsGoals.filter(g => g.kid_profile === profile?.id)
-        const myBadges = DEMO_BADGES[profile?.id] || []
+        const myBadges = []
         return <KidsChildView profile={profile} goals={myGoals} badges={myBadges} />
     }
 
@@ -65,7 +58,7 @@ function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal }) {
 
     const selectedKid = kids.find(k => k.id === selectedKidId)
     const selectedGoals = kidsGoals.filter(g => g.kid_profile === selectedKidId)
-    const kidBadges = DEMO_BADGES[selectedKidId] || []
+    const kidBadges = []
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

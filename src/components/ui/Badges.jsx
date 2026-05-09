@@ -10,10 +10,6 @@
 //   PlanBadge  → Badge del plan SaaS activo (free/pro/family/admin).
 //                Color y texto según el plan. Usado en Header y Family.jsx.
 //
-//   DemoBanner → Banner informativo de "Modo Demo".
-//                Visible cuando la app corre sin Supabase configurado.
-//                Invita al usuario a configurar .env.local.
-//
 // NOTA SOBRE Chip:
 //   El color activo es el color de la cuenta/tarjeta (personalizable).
 //   El color inactivo es var(--border) con texto var(--muted).
@@ -111,43 +107,3 @@ export function PlanBadge({ plan }) {
 
 // PlanBadge es el export default (más usado externamente)
 export default PlanBadge
-
-// ── DemoBanner — Aviso de modo demo ──────────────────────────────────────────
-/**
- * Banner informativo que aparece cuando la app corre en modo demo
- * (sin Supabase configurado → supabase = null → isDemoMode = true).
- *
- * Proporciona:
- *   1. Indicación clara de que los datos no se persisten
- *   2. Instrucción concisa para activar Supabase
- *
- * Color: amarillo (#fbbf24) — llamativo pero no alarma
- * Posición: arriba del contenido principal, debajo del FilterBar
- */
-export function DemoBanner() {
-  return (
-    <div style={{
-      background:   '#fbbf2414',
-      border:       '1px solid #fbbf2433',
-      borderRadius: 'var(--radius-sm)',
-      padding:      '8px 14px',
-      fontSize:     12,
-      color:        '#fbbf24',
-      marginBottom: 14,
-      display:      'flex',
-      alignItems:   'center',
-      gap:          8,
-      lineHeight:   1.5,
-    }}>
-      <span style={{ fontSize:16, flexShrink:0 }}>⚠️</span>
-      <span>
-        <strong>Modo demo</strong> — Los datos no se guardan entre sesiones.
-        Copia <code style={{ background:'#fbbf2420', padding:'1px 5px', borderRadius:3 }}>
-          .env.local.example
-        </code> → <code style={{ background:'#fbbf2420', padding:'1px 5px', borderRadius:3 }}>
-          .env.local
-        </code> y agrega tus claves de Supabase para persistir los datos.
-      </span>
-    </div>
-  )
-}

@@ -71,7 +71,6 @@ import Header from './components/layout/Header'
 import Sidebar from './components/layout/Sidebar'
 import BottomNav from './components/layout/BottomNav'
 import FilterBar from './components/layout/FilterBar'
-import { DemoBanner } from './components/ui/Badges'
 
 // Páginas
 import Dashboard from './pages/Dashboard'
@@ -118,7 +117,7 @@ const TABS_WITH_FILTER = new Set(['dashboard', 'transactions', 'statements'])
 
 // ── AppInner ──────────────────────────────────────────────────────────────────
 function AppInner() {
-  const { onboardingState, isDemoMode, tab, modal, isKid, t } = useApp()
+  const { onboardingState, tab, modal, isKid, t } = useApp()
   const [showProfile, setShowProfile] = useState(false)
 
   // 1. Cargando
@@ -160,7 +159,6 @@ function AppInner() {
           flex: 1, overflowY: 'auto', padding: '18px 16px',
           maxWidth: 980, width: '100%', margin: '0 auto', paddingBottom: 80,
         }}>
-          {isDemoMode && <DemoBanner />}
           {TABS_WITH_FILTER.has(tab) && <FilterBar />}
           <div className="slide-in" key={tab}>
             {PAGE_MAP[tab] ?? <Dashboard />}

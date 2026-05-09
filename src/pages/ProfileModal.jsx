@@ -1,3 +1,4 @@
+
 // src/pages/ProfileModal.jsx
 // ─────────────────────────────────────────────────────────────────────────────
 // PROPÓSITO: Modal de configuración del perfil del usuario.
@@ -60,7 +61,7 @@ const THEME_OPTIONS = [
 ]
 
 export default function ProfileModal({ onClose }) {
-    const { t, profile, lang, setLang, signOut, updateProfile, isDemoMode } = useApp()
+    const { t, profile, lang, setLang, signOut, updateProfile } = useApp()
 
     const [activeTab, setActiveTab] = useState('profile')
 
@@ -112,7 +113,7 @@ export default function ProfileModal({ onClose }) {
     const handlePasswordReset = async () => {
         if (!profile?.email) { setPwError('No se encontró el email del perfil'); return }
         setPwLoading(true); setPwError('')
-        if (!isDemoMode && supabase) {
+        if (supabase) {
             const { error } = await supabase.auth.resetPasswordForEmail(
                 profile.email,
                 { redirectTo: window.location.origin }

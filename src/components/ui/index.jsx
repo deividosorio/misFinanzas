@@ -19,7 +19,7 @@
 //   Modal.jsx       → Modal accesible con overlay
 //   Form.jsx        → Field, Input, Select, ModalFooter, ColorPicker
 //   DataDisplay.jsx → KPICard, ProgressBar, SectionHeader, Empty, TypeBadge
-//   Badges.jsx      → Chip, PlanBadge, DemoBanner
+//   Badges.jsx      → Chip, PlanBadge
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Btn ───────────────────────────────────────────────────────────────────────
@@ -38,4 +38,4 @@ export { Field, Input, Select, ModalFooter, ColorPicker } from './Form'
 export { KPICard, ProgressBar, SectionHeader, Empty, TypeBadge } from './DataDisplay'
 
 // ── Badges ────────────────────────────────────────────────────────────────────
-export { default as PlanBadge, Chip, DemoBanner } from './Badges'
+export { default as PlanBadge, Chip } from './Badges'

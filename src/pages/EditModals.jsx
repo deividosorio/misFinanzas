@@ -71,7 +71,7 @@ const isCred = (subtype) => CREDIT_SUBTYPES.includes(subtype)
  * v4: selector de cuenta unificado. Sin payment_account_id.
  */
 export function EditTxModal({ txn, onClose }) {
-    const { t, accounts, editTxn, isDemoMode } = useApp()
+    const { t, accounts, editTxn } = useApp()
 
     const CATS = {
         income: INCOME_CATS,

@@ -134,6 +134,23 @@ export function useAuth () {
         prof = { ...prof, role: 'member' }
       }
 
+      // Si el rol es "kid", asegurar que is_kid sea true
+      if (prof.role === 'kid' && !prof.is_kid) {
+        const { error: kidErr } = await supabase
+          .from('profiles')
+          .update({ is_kid: true })
+          .eq('id', user.id)
+
+        if (kidErr) {
+          console.error(
+            '[MiFinanza] Error actualizando is_kid:',
+            kidErr.message
+          )
+        } else {
+          prof = { ...prof, is_kid: true }
+        }
+      }
+
       setProfile(prof)
 
       // PASO 3: Determinar onboarding state según familia y status
@@ -365,7 +382,7 @@ export function useAuth () {
     }
 
     hardResetAuth()
-  }, [hardResetAuth])
+  }, [])
 
   const reloadProfile = useCallback(async () => {
     console.log('[MiFinanza] useAuth reloadProfile: recargando perfil...')
@@ -388,26 +405,17 @@ export function useAuth () {
         return
       }
 
-      console.log(
-        '[MiFinanza] useAuth reloadProfile: Found session for user:',
-        session.user
-      )
+      console.log('[MiFinanza] useAuth reloadProfile: Found session for user:', session.user)
       setUser(session.user)
       resolvingRef.current = true
       try {
-        console.log(
-          '[MiFinanza] useAuth reloadProfile: Resolving profile for user:',
-          session.user
-        )
+        console.log('[MiFinanza] useAuth reloadProfile: Resolving profile for user:', session.user)
         await resolveProfile(session.user)
       } finally {
         resolvingRef.current = false
       }
     } catch (err) {
-      console.error(
-        '[MiFinanza] useAuth reloadProfile: Error reloading profile:',
-        err
-      )
+      console.error('[MiFinanza] useAuth reloadProfile: Error reloading profile:', err)
       await logout()
     }
   }, [resolveProfile, logout])
@@ -487,7 +495,6 @@ export function useAuth () {
     idleTimerRef.current = setTimeout(async () => {
       console.warn('[MiFinanza] Sesión cerrada por inactividad')
       await logout()
-      hardResetAuth()
     }, IDLE_LIMIT)
   }, [logout])
 
