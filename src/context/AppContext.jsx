@@ -126,10 +126,14 @@ export function AppProvider({ children }) {
       const { data: sumData } = await supabase.rpc('rpc_dashboard_summary', {
         p_from: af.from, p_to: af.to, p_account_id: selAcc || null,
       })
+
+      if (sumErr) console.error("rpc_dashboard_summary error:", sumErr)
       if (sumData) setSummary(sumData)
 
-      const { data: nwData } = await supabase.rpc('rpc_net_worth')
+      const { data: nwData, error: nwErr } = await supabase.rpc('rpc_net_worth')
+      if (nwErr) console.error("rpc_net_worth error:", nwErr)
       if (nwData) setNetWorth(nwData)
+
     } catch (err) {
       console.error('[MiFinanza] loadData:', err)
     } finally {
@@ -138,8 +142,12 @@ export function AppProvider({ children }) {
   }, [family?.id, af, selAcc])
 
   useEffect(() => {
-    if (family?.id && onboardingState === 'ready') loadData()
-  }, [loadData, onboardingState])
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session && family?.id && onboardingState === 'ready') {
+        loadData()
+      }
+    })
+  }, [family?.id, onboardingState])
 
   const applyFilter = () => setAf({
     from: pMode === 'month' ? selMonth + '-01' : rFrom,
@@ -249,7 +257,7 @@ export function AppProvider({ children }) {
       interest_rate: parseFloat(debt.interest_rate || 0),
     }).select().single()
     if (!error) await loadData()
-      console.log('[MiFinanza] addDebt result:', { data, error })
+    console.log('[MiFinanza] addDebt result:', { data, error })
     return { data, error }
   }
 
