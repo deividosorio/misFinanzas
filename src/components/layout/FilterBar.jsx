@@ -1,39 +1,4 @@
-// src/components/layout/FilterBar.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// PROPÓSITO: Barra de filtros combinados — período de tiempo + cuenta/tarjeta.
-//
-// APARECE EN: Dashboard, Transactions, Statements (definido en App.jsx).
-//
-// SECCIÓN 1 — FILTRO DE PERÍODO (solo en tabs con gráficas):
-//   Modo "Mes": input type="month" — selecciona un mes específico
-//   Modo "Rango": dos inputs type="date" — define from y to libremente
-//   Botón "Aplicar" → llama a applyFilter() → actualiza `af` en contexto
-//     → useEffect en AppContext detecta el cambio → loadData() se ejecuta
-//
-// SECCIÓN 2 — CHIPS DE CUENTA (siempre visibles):
-//   "Todas" → resetea selAcc y selPm (vista consolidada)
-//   Un chip por cada cuenta bancaria (color personalizado de la cuenta)
-//   Al seleccionar una cuenta, se desactiva cualquier tarjeta activa
-//
-// SECCIÓN 3 — CHIPS DE TARJETA (solo si hay tarjetas de crédito):
-//   Un chip por cada tarjeta de crédito/débito
-//   Al seleccionar una tarjeta, se desactiva cualquier cuenta activa
-//
-// INTERACTIVIDAD:
-//   Los filtros se reflejan inmediatamente en filteredTxns (calculado en AppContext).
-//   Para gráficas y KPIs, el cambio requiere hacer clic en "Aplicar" (trigger loadData).
-//
-// DEPENDENCIAS:
-//   useApp() → todos los estados de filtro y setters
-//   Chip     → botón tipo pill con color activo/inactivo
-//   Btn      → botón primario/ghost para los toggles de modo
-// ─────────────────────────────────────────────────────────────────────────────
-// src/components/layout/FilterBar.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// v4: Selector de cuenta UNIFICADO
-// Ya no hay selPm (forma de pago) separado.
-// Un solo filtro de cuenta muestra activos y crédito en la misma lista.
-// ─────────────────────────────────────────────────────────────────────────────
+import { useState } from 'react'
 import { useApp } from '../../context/AppContext'
 import Btn from '../ui/Btn'
 import DatePicker from '../ui/DatePicker'
@@ -54,6 +19,10 @@ export default function FilterBar() {
   } = useApp()
 
   const showPeriod = TABS_WITH_PERIOD.includes(tab)
+  const [showSelector, setShowSelector] = useState(false)
+
+  const assetAccounts = accounts.filter(a => a.is_active && !CREDIT_SUBTYPES.includes(a.subtype))
+  const creditAccounts = accounts.filter(a => a.is_active && CREDIT_SUBTYPES.includes(a.subtype))
 
   const DATE_INPUT = {
     background: 'var(--bg)',
@@ -66,120 +35,192 @@ export default function FilterBar() {
     fontFamily: 'var(--font-body)',
   }
 
-  // Separar para mostrar con etiquetas
-  const assetAccounts = accounts.filter(a => a.is_active && !CREDIT_SUBTYPES.includes(a.subtype))
-  const creditAccounts = accounts.filter(a => a.is_active && CREDIT_SUBTYPES.includes(a.subtype))
+  const selectedLabel = (() => {
+    if (!selAcc) return t.allAccounts
+    const acc = accounts.find(a => a.id === selAcc)
+    if (!acc) return t.allAccounts
+    return `${ACCOUNT_SUBTYPES[acc.subtype]?.icon || ''} ${acc.name}`
+  })()
 
   return (
-    <div style={{
-      background: 'var(--surface)',
-      border: '1px solid var(--border)',
-      borderRadius: 'var(--radius)',
-      padding: '10px 14px',
-      marginBottom: 14,
-      display: 'flex',
-      gap: 8,
-      flexWrap: 'wrap',
-      alignItems: 'center',
-    }}>
+    <>
+      <div style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--radius)',
+        padding: '10px 14px',
+        marginBottom: 14,
+        display: 'flex',
+        gap: 10,
+        flexWrap: 'wrap',
+        alignItems: 'center',
+      }}>
 
-      {/* ── PERÍODO (solo en tabs con gráficas) ── */}
-      {showPeriod && (
-        <>
-          <div style={{ display: 'flex', gap: 3 }}>
-            <Btn size="xs" variant={pMode === 'month' ? 'primary' : 'ghost'} onClick={() => setPMode('month')}>
-              {t.selectMonth}
-            </Btn>
-            <Btn size="xs" variant={pMode === 'range' ? 'primary' : 'ghost'} onClick={() => setPMode('range')}>
-              {t.customRange}
-            </Btn>
-          </div>
-
-          {pMode === 'month' ? (
-            <input type="month" value={selMonth}
-              onChange={e => setSelMonth(e.target.value)}
-              style={{ ...DATE_INPUT, width: 150 }} />
-          ) : (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ width: 130 }}>
-                <DatePicker value={rFrom} onChange={setRFrom} placeholder={t.from} />
-              </div>
-              <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>→</span>
-              <div style={{ width: 130 }}>
-                <DatePicker value={rTo} onChange={setRTo} placeholder={t.to} />
-              </div>
+        {/* ── PERÍODO ── */}
+        {showPeriod && (
+          <>
+            <div style={{ display: 'flex', gap: 3 }}>
+              <Btn size="xs" variant={pMode === 'month' ? 'primary' : 'ghost'} onClick={() => setPMode('month')}>
+                {t.selectMonth}
+              </Btn>
+              <Btn size="xs" variant={pMode === 'range' ? 'primary' : 'ghost'} onClick={() => setPMode('range')}>
+                {t.customRange}
+              </Btn>
             </div>
-          )}
 
-          <Btn size="xs" variant="primary" onClick={applyFilter}>{t.apply}</Btn>
-          <VDiv />
-        </>
+            {pMode === 'month' ? (
+              <input type="month" value={selMonth}
+                onChange={e => setSelMonth(e.target.value)}
+                style={{ ...DATE_INPUT, width: 150 }} />
+            ) : (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ width: 130 }}>
+                  <DatePicker value={rFrom} onChange={setRFrom} placeholder={t.from} />
+                </div>
+                <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>→</span>
+                <div style={{ width: 130 }}>
+                  <DatePicker value={rTo} onChange={setRTo} placeholder={t.to} />
+                </div>
+              </div>
+            )}
+
+            <Btn size="xs" variant="primary" onClick={applyFilter}>{t.apply}</Btn>
+          </>
+        )}
+
+        {/* ── SELECTOR COMPACTO ── */}
+        <button
+          onClick={() => setShowSelector(true)}
+          style={{
+            border: '1px solid var(--border)',
+            background: 'var(--bg)',
+            borderRadius: 8,
+            padding: '6px 12px',
+            fontSize: 12,
+            fontFamily: 'var(--font-body)',
+            cursor: 'pointer',
+            flexShrink: 0,
+            color: 'var(--text)',
+          }}
+        >
+          {selectedLabel}
+        </button>
+      </div>
+
+      {/* ── MODAL SELECTOR ── */}
+      {showSelector && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: '#0006',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            background: 'var(--surface)',
+            borderRadius: 'var(--radius)',
+            padding: 16,
+            width: '90%',
+            maxWidth: 380,
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            border: '1px solid var(--border)',
+          }}>
+            <h3 style={{ margin: 0, marginBottom: 10, fontSize: 14 }}>{t.selectAccount}</h3>
+
+            {/* Todas */}
+            <SelectorItem
+              active={!selAcc}
+              onClick={() => { setSelAcc(null); setShowSelector(false) }}
+            >
+              {t.allAccounts}
+            </SelectorItem>
+
+            {/* Activos */}
+            {assetAccounts.length > 0 && (
+              <SectionLabel>{t.assetAccounts}</SectionLabel>
+            )}
+            {assetAccounts.map(a => (
+              <SelectorItem
+                key={a.id}
+                active={selAcc === a.id}
+                color={a.color}
+                onClick={() => { setSelAcc(a.id); setShowSelector(false) }}
+              >
+                {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+              </SelectorItem>
+            ))}
+
+            {/* Tarjetas */}
+            {creditAccounts.length > 0 && (
+              <SectionLabel>{t.creditCards}</SectionLabel>
+            )}
+            {creditAccounts.map(a => (
+              <SelectorItem
+                key={a.id}
+                active={selAcc === a.id}
+                color={a.color}
+                onClick={() => { setSelAcc(a.id); setShowSelector(false) }}
+              >
+                💳 {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
+              </SelectorItem>
+            ))}
+
+            <button
+              onClick={() => setShowSelector(false)}
+              style={{
+                marginTop: 12,
+                width: '100%',
+                padding: '8px 0',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+            >
+              {t.close}
+            </button>
+          </div>
+        </div>
       )}
+    </>
+  )
+}
 
-      {/* ── CHIPS DE CUENTA UNIFICADOS ── */}
-      {/* Chip "Todas" */}
-      <AccountChip
-        active={!selAcc}
-        color={null}
-        onClick={() => setSelAcc(null)}
-      >
-        {t.allAccounts}
-      </AccountChip>
-
-      {/* Cuentas de activo */}
-      {assetAccounts.map(a => (
-        <AccountChip
-          key={a.id}
-          active={selAcc === a.id}
-          color={a.color}
-          onClick={() => setSelAcc(selAcc === a.id ? null : a.id)}
-        >
-          {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
-        </AccountChip>
-      ))}
-
-      {/* Separador si hay tarjetas */}
-      {creditAccounts.length > 0 && <VDiv />}
-
-      {/* Tarjetas de crédito */}
-      {creditAccounts.map(a => (
-        <AccountChip
-          key={a.id}
-          active={selAcc === a.id}
-          color={a.color}
-          onClick={() => setSelAcc(selAcc === a.id ? null : a.id)}
-        >
-          💳 {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
-        </AccountChip>
-      ))}
+function SelectorItem({ active, color, children, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        padding: '8px 10px',
+        borderRadius: 8,
+        marginBottom: 6,
+        cursor: 'pointer',
+        background: active ? (color || 'var(--blue)') : 'var(--border)',
+        color: active ? '#fff' : 'var(--text)',
+        fontSize: 13,
+        fontWeight: 500,
+      }}
+    >
+      {children}
     </div>
   )
 }
 
-// Chip de cuenta
-function AccountChip({ active, color, children, onClick }) {
+function SectionLabel({ children }) {
   return (
-    <button onClick={onClick} style={{
-      border: 'none',
-      borderRadius: 20,
-      padding: '5px 12px',
-      cursor: 'pointer',
-      fontFamily: 'var(--font-body)',
-      fontSize: 12,
-      fontWeight: 600,
-      whiteSpace: 'nowrap',
-      lineHeight: 1.4,
-      transition: 'all .15s',
-      background: active ? (color || 'var(--blue)') : 'var(--border)',
-      color: active ? '#fff' : (color || 'var(--muted)'),
-      outline: active ? `1px solid ${color || 'var(--blue)'}44` : 'none',
+    <div style={{
+      marginTop: 12,
+      marginBottom: 4,
+      fontSize: 11,
+      fontWeight: 700,
+      color: 'var(--muted)',
+      textTransform: 'uppercase',
     }}>
       {children}
-    </button>
+    </div>
   )
-}
-
-// Separador vertical
-function VDiv() {
-  return <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 2px', flexShrink: 0 }} />
 }
