@@ -52,6 +52,7 @@ export function useAuth () {
 
   // Flag para evitar race conditions (solo un resolveProfile a la vez)
   const resolvingRef = useRef(false)
+  const mountedRef = useRef(true)
 
   // Ref para manejar el timer de inactividad
   const idleTimerRef = useRef(null)
@@ -70,6 +71,25 @@ export function useAuth () {
    *   4. Determinar onboarding state según contexto
    */
 
+  // Función para resetear completamente el estado de autenticación (logout total)
+  const hardResetAuth = useCallback(() => {
+    console.warn('[MiFinanza] HARD RESET AUTH')
+
+    setUser(null)
+    setProfile(null)
+    setFamily(null)
+
+    setLoading(false)
+    setOnboardingState('unauthenticated')
+
+    // SOLO tus claves
+    localStorage.removeItem('mifinanza-cache')
+    localStorage.removeItem('mifinanza-ui')
+
+    sessionStorage.removeItem('mifinanza-temp')
+  }, [])
+
+  // Función para cargar perfil y familia, y asignar estado de onboardingh
   const resolveProfile = useCallback(async authUser => {
     // No user
     if (!authUser) {
@@ -153,6 +173,7 @@ export function useAuth () {
         }
       }
 
+      if (!mountedRef.current) return
       setProfile(prof)
 
       // PASO 3: Determinar onboarding state según familia y status
@@ -183,6 +204,7 @@ export function useAuth () {
         return
       }
 
+      if (!mountedRef.current) return
       setFamily(fam)
 
       // PASO 4: Verificar si está pendiente de aprobación
@@ -201,9 +223,55 @@ export function useAuth () {
     }
   }, [])
 
+  // Maneja cambios de autenticación (login, logout, token refresh, etc)
+  const handleAuthChange = useCallback(
+    (event, session) => {
+      Promise.resolve().then(async () => {
+        try {
+          if (event === 'INITIAL_SESSION') return
+
+          if (session && isTokenExpired(session)) {
+            hardResetAuth()
+            return
+          }
+
+          if (event === 'SIGNED_OUT' || !session) {
+            hardResetAuth()
+            return
+          }
+
+          if (
+            [
+              'TOKEN_REFRESHED',
+              'USER_UPDATED',
+              'PASSWORD_RECOVERY',
+              'SIGNED_IN'
+            ].includes(event)
+          ) {
+            setUser(session.user)
+
+            if (!resolvingRef.current) {
+              resolvingRef.current = true
+
+              try {
+                await resolveProfile(session.user)
+              } finally {
+                resolvingRef.current = false
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[MiFinanza] auth change error:', err)
+        }
+      })
+    },
+    [resolveProfile, hardResetAuth]
+  )
+
   // ── EFECTO: Inicializar autenticación ────────────────────────────────
   useEffect(() => {
     let cancelled = false
+    mountedRef.current = true
 
     // TIMEOUT DE SEGURIDAD: 5 segundos máximo para cargar
     const safetyTimeout = setTimeout(() => {
@@ -236,64 +304,17 @@ export function useAuth () {
       }
     })
 
-    // OBSERVADOR DE CAMBIOS: onAuthStateChange()
-    // Solo procesa cambios DESPUÉS de que getSession() haya resuelto.
-    // Ignora INITIAL_SESSION (ya manejado por getSession).
+    // SUBSCRIPCIÓN: escuchar cambios de autenticación en tiempo real
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
-
-      // Ignorar el evento inicial
-      if (event === 'INITIAL_SESSION') return
-
-      // LIMPIEZA DE CACHÉ: Evitar datos residuales en cambios de sesión en PWA
-      if ('caches' in window) {
-        caches.keys().then(keys => keys.forEach(k => caches.delete(k)))
-      }
-
-      // REVALIDACIÓN DE SESIÓN: Si el token está expirado, forzar logout
-      if (session && isTokenExpired(session)) {
-        await logout()
-        return
-      }
-
-      // Si estamos en el proceso inicial, ignorar SIGNED_IN
-      if (event === 'SIGNED_IN' && resolvingRef.current) return
-
-      if (event === 'SIGNED_OUT' || !session) {
-        setUser(null)
-        setProfile(null)
-        setFamily(null)
-        setOnboardingState('unauthenticated')
-        setLoading(false)
-        hardResetAuth() // Limpiar todo para evitar datos residuales
-        return
-      }
-
-      // Procesar cambios: TOKEN_REFRESHED, USER_UPDATED, PASSWORD_RECOVERY
-      if (
-        [
-          'TOKEN_REFRESHED',
-          'USER_UPDATED',
-          'PASSWORD_RECOVERY',
-          'SIGNED_IN'
-        ].includes(event)
-      ) {
-        setUser(session.user)
-        if (!resolvingRef.current) {
-          resolvingRef.current = true
-          try {
-            await resolveProfile(session.user)
-          } finally {
-            resolvingRef.current = false
-          }
-        }
-      }
+      handleAuthChange(event, session)
     })
 
     return () => {
       cancelled = true
+      mountedRef.current = false
       clearTimeout(safetyTimeout)
       subscription.unsubscribe()
     }
@@ -400,28 +421,37 @@ export function useAuth () {
         session,
         error
       })
-      
+
       // ❌ No hay sesión → reset total
       if (error || !session || isTokenExpired(session)) {
         console.log(
           '[MiFinanza] useAuth reloadProfile: Session invalida o expirada'
         )
-        
+
         await logout()
         return
       }
 
-      console.log('[MiFinanza] useAuth reloadProfile: Found session for user:', session.user)
+      console.log(
+        '[MiFinanza] useAuth reloadProfile: Found session for user:',
+        session.user
+      )
       setUser(session.user)
       resolvingRef.current = true
       try {
-        console.log('[MiFinanza] useAuth reloadProfile: Resolving profile for user:', session.user)
+        console.log(
+          '[MiFinanza] useAuth reloadProfile: Resolving profile for user:',
+          session.user
+        )
         await resolveProfile(session.user)
       } finally {
         resolvingRef.current = false
       }
     } catch (err) {
-      console.error('[MiFinanza] useAuth reloadProfile: Error reloading profile:', err)
+      console.error(
+        '[MiFinanza] useAuth reloadProfile: Error reloading profile:',
+        err
+      )
       await logout()
     }
   }, [resolveProfile, logout])
@@ -474,23 +504,6 @@ export function useAuth () {
     const now = Math.floor(Date.now() / 1000)
     return session.expires_at <= now
   }
-
-  const hardResetAuth = useCallback(() => {
-    console.warn('[MiFinanza] HARD RESET AUTH')
-
-    setUser(null)
-    setProfile(null)
-    setFamily(null)
-
-    setLoading(false)
-    setOnboardingState('unauthenticated')
-
-    // SOLO tus claves
-    localStorage.removeItem('mifinanza-cache')
-    localStorage.removeItem('mifinanza-ui')
-
-    sessionStorage.removeItem('mifinanza-temp')
-  }, [])
 
   // Función para resetear el timer de inactividad
   const resetIdleTimer = useCallback(() => {
