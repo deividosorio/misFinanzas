@@ -907,7 +907,7 @@ export function RecurringModal({ onClose }) {
         handleClose()
     }
 
-    return (
+    return ( 
         <Modal title="＋ Nuevo pago recurrente" onClose={handleClose} width={460}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 
@@ -1238,8 +1238,8 @@ export function KidGoalModal({ onClose }) {
         const kid = kids.find(k => k.id === f.kid_profile)
         const { error } = await addKidGoal({
             kid_profile: f.kid_profile,
-            kid_name: kid?.display_name || '',
             name: f.name.trim(),
+            description: `Meta de ${kid.display_name}`,
             target_amount: parseFloat(f.target_amount),
             emoji: f.emoji,
             color: f.color,

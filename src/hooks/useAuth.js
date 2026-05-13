@@ -86,6 +86,8 @@ export function useAuth () {
         .eq('id', authUser.id)
         .single()
 
+      console.log('[MiFinanza] resolveProfile: Perfil cargado:', { prof, pErr })
+
       // PASO 2: Si no existe, crearlo (el trigger falló, caso raro)
       if (pErr?.code === 'PGRST116' || !prof) {
         const displayName =
@@ -222,6 +224,8 @@ export function useAuth () {
         hardResetAuth()
         return
       }
+
+      console.log('[MiFinanza] Sesión encontrada para usuario:', session.user)
 
       setUser(session.user)
       resolvingRef.current = true
@@ -396,11 +400,13 @@ export function useAuth () {
         session,
         error
       })
+      
       // ❌ No hay sesión → reset total
       if (error || !session || isTokenExpired(session)) {
         console.log(
           '[MiFinanza] useAuth reloadProfile: Session invalida o expirada'
         )
+        
         await logout()
         return
       }

@@ -123,7 +123,7 @@ export function AppProvider({ children }) {
       if (kgD) setKidsGoals(kgD)
       if (membsD) setMembers(membsD)
 
-      const { data: sumData } = await supabase.rpc('rpc_dashboard_summary', {
+      const { data: sumData, error: sumErr } = await supabase.rpc('rpc_dashboard_summary', {
         p_from: af.from, p_to: af.to, p_account_id: selAcc || null,
       })
 
@@ -283,9 +283,11 @@ export function AppProvider({ children }) {
 
   // ── Recurrentes ────────────────────────────────────────────────────────
   const addRecurring = async (rec) => {
+    console.log('[MiFinanza] Adding recurring payment:', rec)
     const { data, error } = await supabase.from('recurring_payments').insert({
       family_id: family.id, created_by: profile?.id, ...rec, amount: parseFloat(rec.amount),
     }).select().single()
+    console.log('[MiFinanza] addRecurring result:', { data, error })
     if (!error) await loadData()
     return { data, error }
   }
