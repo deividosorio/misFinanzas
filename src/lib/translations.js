@@ -67,6 +67,7 @@ const T = {
     statements:   'Estados',
     family:       'Familia',
     admin:        'Admin',
+    more:         'Más',
 
     // Tipos de transacción
     income:   'Ingreso',
@@ -259,6 +260,7 @@ const T = {
     statements:   'Statements',
     family:       'Family',
     admin:        'Admin',
+    more:         'More',
     income:   'Income',
     expense:  'Expense',
     saving:   'Saving',
@@ -365,6 +367,7 @@ const T = {
     statements:   'États',
     family:       'Famille',
     admin:        'Admin',
+    more:         'Plus',
     income:   'Revenu',
     expense:  'Dépense',
     saving:   'Épargne',

@@ -34,6 +34,9 @@ export { default as Modal } from './Modal'
 // ── Form components ───────────────────────────────────────────────────────────
 export { Field, Input, Select, ModalFooter, ColorPicker } from './Form'
 
+// ── DatePicker ────────────────────────────────────────────────────────────────
+export { default as DatePicker } from './DatePicker'
+
 // ── Data display ──────────────────────────────────────────────────────────────
 export { KPICard, ProgressBar, SectionHeader, Empty, TypeBadge } from './DataDisplay'
 

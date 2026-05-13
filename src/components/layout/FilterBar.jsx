@@ -36,6 +36,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useApp } from '../../context/AppContext'
 import Btn from '../ui/Btn'
+import DatePicker from '../ui/DatePicker'
 import { ACCOUNT_SUBTYPES, CREDIT_SUBTYPES } from '../../lib/constants'
 
 const TABS_WITH_PERIOD = ['dashboard', 'statements']
@@ -99,13 +100,14 @@ export default function FilterBar() {
               onChange={e => setSelMonth(e.target.value)}
               style={{ ...DATE_INPUT, width: 150 }} />
           ) : (
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{t.from}</span>
-              <input type="date" value={rFrom} onChange={e => setRFrom(e.target.value)}
-                style={{ ...DATE_INPUT, width: 132 }} />
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>→</span>
-              <input type="date" value={rTo} onChange={e => setRTo(e.target.value)}
-                style={{ ...DATE_INPUT, width: 132 }} />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ width: 130 }}>
+                <DatePicker value={rFrom} onChange={setRFrom} placeholder={t.from} />
+              </div>
+              <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>→</span>
+              <div style={{ width: 130 }}>
+                <DatePicker value={rTo} onChange={setRTo} placeholder={t.to} />
+              </div>
             </div>
           )}
 

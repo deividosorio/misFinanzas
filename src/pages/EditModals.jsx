@@ -56,6 +56,7 @@ import { useApp } from '../context/AppContext'
 import Modal from '../components/ui/Modal'
 import Btn from '../components/ui/Btn'
 import { Field, Input, Select, ModalFooter, ColorPicker } from '../components/ui/Form'
+import DatePicker from '../components/ui/DatePicker'
 import {
     ACCOUNT_SUBTYPES, CREDIT_SUBTYPES,
     INCOME_CATS, EXPENSE_CATS, SAVING_CATS,
@@ -211,8 +212,8 @@ export function EditTxModal({ txn, onClose }) {
                             onChange={e => set('amount', e.target.value)} min="0" step="0.01" />
                     </Field>
                     <Field label={t.date}>
-                        <Input type="date" value={f.date}
-                            onChange={e => set('date', e.target.value)} />
+                        <DatePicker value={f.date}
+                            onChange={v => set('date', v)} />
                     </Field>
                 </div>
 
@@ -311,8 +312,8 @@ export function EditDebtModal({ debt, onClose }) {
                             onChange={e => setF(p => ({ ...p, interest_rate: e.target.value }))} min="0" step="0.01" />
                     </Field>
                     <Field label="Fecha inicio">
-                        <Input type="date" value={f.start_date}
-                            onChange={e => setF(p => ({ ...p, start_date: e.target.value }))} />
+                        <DatePicker value={f.start_date}
+                            onChange={v => setF(p => ({ ...p, start_date: v }))} />
                     </Field>
                 </div>
 
@@ -524,8 +525,8 @@ export function EditRecurringModal({ rec, onClose }) {
                 </Field>
 
                 <Field label="Próximo pago">
-                    <Input type="date" value={f.next_due}
-                        onChange={e => setF(p => ({ ...p, next_due: e.target.value }))} />
+                    <DatePicker value={f.next_due}
+                        onChange={v => setF(p => ({ ...p, next_due: v }))} />
                 </Field>
 
                 <Field label="Notas">
@@ -608,8 +609,8 @@ export function EditSavingsGoalModal({ goal, onClose }) {
                             onChange={e => setF(p => ({ ...p, target_amount: e.target.value }))} min="0" />
                     </Field>
                     <Field label="Fecha límite">
-                        <Input type="date" value={f.deadline}
-                            onChange={e => setF(p => ({ ...p, deadline: e.target.value }))} />
+                        <DatePicker value={f.deadline}
+                            onChange={v => setF(p => ({ ...p, deadline: v }))} />
                     </Field>
                 </div>
 

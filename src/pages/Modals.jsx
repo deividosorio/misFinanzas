@@ -60,6 +60,7 @@ import { useApp } from '../context/AppContext'
 import Modal from '../components/ui/Modal'
 import Btn from '../components/ui/Btn'
 import { Field, Input, Select, ModalFooter, ColorPicker } from '../components/ui/Form'
+import DatePicker from '../components/ui/DatePicker'
 import {
     INCOME_CATS, EXPENSE_CATS, SAVING_CATS,
     ACC_COLORS, ACCOUNT_SUBTYPES, ALL_SUBTYPES,
@@ -604,10 +605,9 @@ export function TxModal({ onClose }) {
                         />
                     </Field>
                     <Field label={t.date}>
-                        <Input
-                            type="date"
+                        <DatePicker
                             value={f.date}
-                            onChange={e => set('date', e.target.value)}
+                            onChange={v => set('date', v)}
                         />
                     </Field>
                 </div>
@@ -778,10 +778,9 @@ export function DebtModal({ onClose }) {
                 </div>
 
                 <Field label="Fecha de inicio">
-                    <Input
-                        type="date"
+                    <DatePicker
                         value={f.start_date}
-                        onChange={e => setF(p => ({ ...p, start_date: e.target.value }))}
+                        onChange={v => setF(p => ({ ...p, start_date: v }))}
                     />
                 </Field>
 
@@ -1041,10 +1040,9 @@ export function RecurringModal({ onClose }) {
 
                 {/* Próximo vencimiento */}
                 <Field label="Fecha del próximo pago">
-                    <Input
-                        type="date"
+                    <DatePicker
                         value={f.next_due}
-                        onChange={e => setF(p => ({ ...p, next_due: e.target.value }))}
+                        onChange={v => setF(p => ({ ...p, next_due: v }))}
                     />
                 </Field>
 
@@ -1160,10 +1158,9 @@ export function GoalModal({ onClose }) {
                         />
                     </Field>
                     <Field label="Fecha límite (opcional)">
-                        <Input
-                            type="date"
+                        <DatePicker
                             value={f.deadline}
-                            onChange={e => setF(p => ({ ...p, deadline: e.target.value }))}
+                            onChange={v => setF(p => ({ ...p, deadline: v }))}
                         />
                     </Field>
                 </div>
