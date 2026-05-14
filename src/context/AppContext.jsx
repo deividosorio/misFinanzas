@@ -194,7 +194,6 @@ export function AppProvider({ children }) {
       p_amount: parseFloat(tx.amount), p_date: tx.date,
       p_account_id: tx.account_id || null, p_notes: tx.notes || null,
       p_auto_source: tx.auto_source || null, p_source_id: tx.source_id || null,
-      p_payment_account_id: tx.payment_account_id || null,
     })
     if (!error) await loadData()
     return { data, error }
