@@ -73,6 +73,7 @@ const T = {
     income:   'Ingreso',
     expense:  'Gasto',
     saving:   'Ahorro',
+    payment:  'Pago',
     transfer: 'Transferencia',
     allTypes: 'Todos',
 
@@ -222,6 +223,7 @@ const T = {
       car:           'Auto',
       dons:          'Diezmo',
       debts:         'Deudas',
+      credit_card_payment:       'Pago TC',
       other_expense: 'Otro gasto',
       // Ahorros
       emergency:     'Emergencias',
@@ -268,6 +270,7 @@ const T = {
     saving:   'Saving',
     transfer: 'Transfer',
     allTypes: 'All',
+    payment: 'Payment',
     add: 'Add', edit: 'Edit', delete: 'Delete', cancel: 'Cancel', save: 'Save',
     confirm: 'Confirm', close: 'Close', apply: 'Apply', export: 'Export',
     import: 'Import', copy: 'Copy', copied: '✓ Copied',
@@ -335,7 +338,7 @@ const T = {
       insurance:'Insurance', mortgage:'Mortgage', car:'Car',
       other_expense:'Other expense', emergency:'Emergency',
       vacation:'Vacation', retirement:'Retirement', goal:'Goal',
-      transfer:'Transfer', dons: 'Dons', debts: 'Debts',
+      transfer:'Transfer', dons: 'Dons', debts: 'Debts', credit_card_payment: 'Credit card payment',
     },
   },
 
@@ -374,6 +377,7 @@ const T = {
     expense:  'Dépense',
     saving:   'Épargne',
     transfer: 'Transfert',
+    payment:  'Paiement',
     allTypes: 'Tous',
     add: 'Ajouter', edit: 'Modifier', delete: 'Supprimer', cancel: 'Annuler',
     save: 'Enregistrer', confirm: 'Confirmer', close: 'Fermer',
@@ -444,7 +448,7 @@ const T = {
       insurance:'Assurance', mortgage:'Hypothèque', car:'Auto',
       other_expense:'Autre dépense', emergency:'Urgences',
       vacation:'Vacances', retirement:'Retraite', goal:'Objectif',
-      transfer:'Transfert', dons: 'Dons', debts: 'Dettes',
+      transfer:'Transfert', dons: 'Dons', debts: 'Dettes', credit_card_payment: 'Paiement carte',
     },
   },
 }

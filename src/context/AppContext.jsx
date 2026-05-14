@@ -219,6 +219,22 @@ export function AppProvider({ children }) {
     await loadData()
   }
 
+  // ── Payment card credit─────────────────────────────────────────────────
+  const payCreditCard = async ({ from_account_id, credit_account_id, amount, date = toDay(), notes }) => {
+    if (!family?.id) return { error: new Error('Familia no definida') }
+    if (!from_account_id || !credit_account_id) return { error: new Error('Cuentas inválidas') }
+
+    const { data, error } = await supabase.rpc('rpc_pay_credit_card', {
+      p_family_id: family.id, p_from_account_id: from_account_id,
+      p_credit_account_id: credit_account_id, p_amount: parseFloat(amount),
+      p_date: date, p_notes: notes || null,
+    })
+
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+
   // ── Cuentas ────────────────────────────────────────────────────────────
   const addAccount = async (acc) => {
     if (!isFamilyAdmin) return { error: new Error('Solo el admin puede crear cuentas') }
@@ -314,7 +330,7 @@ export function AppProvider({ children }) {
   const markRecPaid = async (id, date = toDay()) => {
     const rec = recurring.find(r => r.id === id)
     if (!rec) return { error: new Error('No encontrado') }
-        console.log('[MiFinanza] markRecPaid result:', { error })
+    console.log('[MiFinanza] markRecPaid result:', { error })
     if (!error) await loadData()
     return { error }
   }
@@ -367,7 +383,7 @@ export function AppProvider({ children }) {
   const ctx = {
     session, profile, family, members, accounts,
     onboardingState, signOut, updateProfile, createFamily, joinFamily, reloadProfile,
-    assetAccounts, creditAccounts, debts, recurring, txns,
+    assetAccounts, creditAccounts, debts, recurring, txns, payCreditCard,
     goals, kidsGoals, summary, netWorth, dataLoading, filteredTxns,
     t, lang, setLang, tab, setTab,
     isKid, isOwner, isFamilyAdmin, kids, pendingMembers,

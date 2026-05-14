@@ -34,12 +34,12 @@ import { fmt, fmtSign, pct, moLabel, ACCOUNT_SUBTYPES, CREDIT_SUBTYPES } from '.
 
 export default function Dashboard() {
     const {
-        t, summary, netWorth, txns,
+        t, summary, netWorth, filteredTxns,
         accounts, assetAccounts, creditAccounts,
         debts, openModal, setTab, setSelAcc,
     } = useApp()
 
-    const recentTxns = txns.filter(tx => !tx.is_void).slice(0, 8)
+    const recentTxns = filteredTxns.slice(0, 8)
 
     // Tendencia mensual con etiquetas legibles
     const trendData = (summary?.monthly_trend || []).map(m => ({
@@ -272,7 +272,7 @@ export default function Dashboard() {
                         {recentTxns.map((tx, i) => (
                             <MiniTxRow key={tx.id} tx={tx} isLast={i === recentTxns.length - 1} />
                         ))}
-                        {txns.filter(t => !t.is_void).length > 8 && (
+                        {recentTxns.filter(t => !t.is_void).length > 8 && (
                             <div style={{ textAlign: 'center', paddingTop: 10 }}>
                                 <Btn size="xs" variant="ghost" onClick={() => setTab('transactions')}>
                                     Ver todos los movimientos →

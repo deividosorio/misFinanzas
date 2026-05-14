@@ -431,6 +431,7 @@ function TrendSection({ summary, t }) {
                         { key: 'income', color: '#2dd4a0', label: t.income, gradientId: 'gi-tr' },
                         { key: 'expense', color: '#ff6b6b', label: t.expense, gradientId: 'ge-tr' },
                         { key: 'saving', color: '#a78bfa', label: t.saving, gradientId: 'gs-tr' },
+                        { key: 'payment', color: '#ff6b6b', label: t.payment, gradientId: 'gp-tr' },
                     ]}
                 />
             </Card>
@@ -454,6 +455,7 @@ function TrendSection({ summary, t }) {
                         { key: 'income', color: '#2dd4a0', label: t.income },
                         { key: 'expense', color: '#ff6b6b', label: t.expense },
                         { key: 'saving', color: '#a78bfa', label: t.saving },
+                        { key: 'payment', color: '#ff6b6b', label: t.payment },
                     ]}
                 />
             </Card>

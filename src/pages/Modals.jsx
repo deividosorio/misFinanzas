@@ -412,7 +412,7 @@ export function AccountModal({ onClose }) {
  * Para AHORROS: solo cuentas de activo
  */
 export function TxModal({ onClose }) {
-    const { t, accounts, addTxn, closeModal } = useApp()
+    const { t, accounts, addTxn, payCreditCard, closeModal } = useApp()
 
     const handleClose = onClose || closeModal
 
@@ -420,6 +420,7 @@ export function TxModal({ onClose }) {
         income: INCOME_CATS,
         expense: EXPENSE_CATS,
         saving: SAVING_CATS,
+        payment: EXPENSE_CATS, // para pagos de tarjeta se usan categorías de gasto
     }
 
     const [f, setF] = useState({
@@ -427,6 +428,7 @@ export function TxModal({ onClose }) {
         category: 'food',
         account_id: '',
         description: '',
+        from_account_id: '',      // NUEVO: cuenta origen para pago de tarjeta
         amount: '',
         date: toDay(),
         notes: '',
@@ -485,6 +487,115 @@ export function TxModal({ onClose }) {
         handleClose()
     }
 
+    // Lógica especial para pagos de tarjeta de crédito:
+    // Si la cuenta seleccionada es de crédito, el formulario muestra un campo adicional
+    // para seleccionar la cuenta de origen del pago (de dónde sale el dinero).
+    const handlePayCreditCard = async () => {
+        if (!f.account_id) { setError('Selecciona la tarjeta'); return }
+        if (!f.from_account_id) { setError('Selecciona la cuenta de origen'); return }
+        if (!f.amount || parseFloat(f.amount) <= 0) { setError('El monto debe ser mayor que cero'); return }
+
+        setSaving(true)
+        const { error } = await payCreditCard({
+            from_account_id: f.from_account_id,
+            credit_account_id: f.account_id,
+            amount: f.amount,
+            date: f.date,
+            notes: f.notes,
+        })
+        if (error) { setError(error.message); setSaving(false); return }
+        handleClose()
+    }
+
+    // Si la cuenta seleccionada es de crédito, mostrar formulario de pago de tarjeta
+    if (f.type === 'payment') {
+        const assetAccounts = accounts.filter(a => a.is_active && !isCreditSubtype(a.subtype))
+
+        return (
+            <Modal title="Pagar tarjeta de crédito" onClose={handleClose}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
+
+                    {/* Tarjeta a pagar (ya seleccionada) */}
+                    <Field label="Tarjeta de crédito">
+                        <Select
+                            value={f.account_id}
+                            onChange={e => set('account_id', e.target.value)}
+                        >
+                            <option value="">— Seleccionar tarjeta —</option>
+                            {accounts.filter(a => a.is_active && isCreditSubtype(a.subtype)).map(a => (
+                                <option key={a.id} value={a.id}>
+                                    💳 {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
+                                </option>
+                            ))}
+                        </Select>
+                    </Field>
+
+                    {/* Cuenta origen */}
+                    <Field label="Cuenta de donde sale el dinero">
+                        <Select
+                            value={f.from_account_id}
+                            onChange={e => set('from_account_id', e.target.value)}
+                        >
+                            <option value="">— Seleccionar cuenta —</option>
+                            {assetAccounts.map(a => (
+                                <option key={a.id} value={a.id}>
+                                    {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+                                </option>
+                            ))}
+                        </Select>
+                    </Field>
+
+                    {/* Monto y fecha */}
+                    <div className="g2">
+                        <Field label={`${t.amount} (CAD)`}>
+                            <Input
+                                type="number"
+                                value={f.amount}
+                                onChange={e => set('amount', e.target.value)}
+                                placeholder="0"
+                                min="0"
+                                step="0.01"
+                            />
+                        </Field>
+                        <Field label={t.date}>
+                            <DatePicker
+                                value={f.date}
+                                onChange={v => set('date', v)}
+                            />
+                        </Field>
+                    </div>
+
+                    {/* Notas */}
+                    <Field label="Notas (opcional)">
+                        <Input
+                            value={f.notes}
+                            onChange={e => set('notes', e.target.value)}
+                            placeholder="Información adicional..."
+                        />
+                    </Field>
+
+                    {error && (
+                        <div style={{
+                            background: 'var(--red)10', border: '1px solid var(--red)33',
+                            borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                        }}>
+                            ⚠️ {error}
+                        </div>
+                    )}
+
+                    <ModalFooter
+                        onClose={handleClose}
+                        onSave={handlePayCreditCard}
+                        saveLabel={saving ? 'Guardando...' : 'Pagar tarjeta'}
+                        cancelLabel={t.cancel}
+                        disabled={saving || !f.account_id || !f.from_account_id || !f.amount}
+                    />
+                </div>
+            </Modal>
+        )
+    }
+
+
     return (
         <Modal title={`＋ ${t.addTransaction}`} onClose={handleClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
@@ -496,6 +607,7 @@ export function TxModal({ onClose }) {
                             { id: 'income', label: t.income, color: 'var(--green)' },
                             { id: 'expense', label: t.expense, color: 'var(--red)' },
                             { id: 'saving', label: t.saving, color: 'var(--purple)' },
+                            { id: 'payment', label: t.payment, color: 'var(--blue)' },
                         ].map(tp => (
                             <button key={tp.id} onClick={() => set('type', tp.id)} style={{
                                 flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
@@ -577,6 +689,30 @@ export function TxModal({ onClose }) {
                         </div>
                     )}
                 </Field>
+
+                {/* // Lógica especial para pagos de tarjeta de crédito:
+                    // Si la cuenta seleccionada es de crédito, mostrar un botón adicional
+                    // para registrar un pago a esa tarjeta (que abre otro modal específico).
+                
+                {selectedIsCredit && f.type !== 'credit_payment' && (
+                    <button
+                        onClick={() => set('type', 'credit_payment')}
+                        style={{
+                            marginTop: 6,
+                            padding: '6px 10px',
+                            borderRadius: 8,
+                            border: '1px solid var(--blue)',
+                            background: 'var(--blue)10',
+                            color: 'var(--blue)',
+                            fontSize: 11,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        💳 Pagar esta tarjeta
+                    </button>
+                )} 
+                */}
+
 
                 {/* Descripción */}
                 <Field label={t.description}>
@@ -800,7 +936,7 @@ export function DebtModal({ onClose }) {
                     <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
                         La cuenta desde donde se descuentan los pagos mensuales
                     </div>
-                </Field> 
+                </Field>
 
                 <Field label="Notas (opcional)">
                     <Input
@@ -906,7 +1042,7 @@ export function RecurringModal({ onClose }) {
         handleClose()
     }
 
-    return ( 
+    return (
         <Modal title="＋ Nuevo pago recurrente" onClose={handleClose} width={460}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 

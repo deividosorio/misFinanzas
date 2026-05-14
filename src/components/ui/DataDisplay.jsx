@@ -197,14 +197,16 @@ export function Empty({ icon = '📭', message = 'Sin datos' }) {
  *   income  → verde  (#2dd4a0) — dinero que entra
  *   expense → rojo   (#ff6b6b) — dinero que sale
  *   saving  → lavanda (#a78bfa) — dinero apartado
+ *   payment → rojo   (#ff6b6b) — pago
  *
- * @param {'income'|'expense'|'saving'} type - Tipo de transacción
+ * @param {'income'|'expense'|'saving'|'payment'} type - Tipo de transacción
  * @param {string} label - Texto a mostrar (normalmente t[type])
  */
 const TYPE_STYLES = {
   income:  { background:'#2dd4a014', color:'#2dd4a0' },
   expense: { background:'#ff6b6b14', color:'#ff6b6b' },
   saving:  { background:'#a78bfa14', color:'#a78bfa' },
+  payment: { background:'#ff6b6b14', color:'#ff6b6b' },
 }
 
 export function TypeBadge({ type, label }) {

@@ -60,7 +60,7 @@ export default function Transactions() {
       }}>
         {/* Filtro por tipo */}
         <div style={{ display: 'flex', gap: 4 }}>
-          {['all', 'income', 'expense', 'saving'].map(f => (
+          {['all', 'income', 'expense', 'saving', 'payment'].map(f => (
             <Btn key={f} size="sm"
               variant={filterType === f ? 'primary' : 'ghost'}
               onClick={() => setFilterType(f)}

@@ -83,7 +83,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE member_status AS ENUM ('pending','active','suspended');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $$ BEGIN CREATE TYPE txn_type AS ENUM ('income','expense','saving','transfer');
+DO $$ BEGIN CREATE TYPE txn_type AS ENUM ('income','expense','saving','transfer', 'debt_payment', 'credit_payment');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN CREATE TYPE app_theme AS ENUM ('dark','light','system');
@@ -755,6 +755,64 @@ BEGIN
   RETURN row_to_json(v_txn);
 END;
 $$;
+
+
+-- Pago de tarjeta de crédito: mueve dinero de una cuenta de activo a una tarjeta
+-- Crea DOS transacciones coordinadas en la tabla transactions.
+CREATE OR REPLACE FUNCTION rpc_pay_credit_card(
+  p_family_id       UUID,
+  p_from_account_id UUID,  -- cuenta origen (checking / savings)
+  p_credit_account_id UUID, -- tarjeta (credit_card / credit_line)
+  p_amount          NUMERIC,
+  p_date            DATE,
+  p_notes           TEXT DEFAULT NULL
+)
+RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_from_family UUID;
+  v_to_family   UUID;
+BEGIN
+  IF p_amount <= 0 THEN
+    raise exception 'Amount must be > 0';
+  END IF;
+
+  -- Validar que ambas cuentas pertenecen a la misma familia
+  SELECT family_id INTO v_from_family FROM accounts WHERE id = p_from_account_id;
+  SELECT family_id INTO v_to_family   FROM accounts WHERE id = p_credit_account_id;
+
+  IF v_from_family IS NULL OR v_to_family IS NULL THEN
+    RAISE EXCEPTION 'Account not found';
+  END IF;
+
+  IF v_from_family <> p_family_id OR v_to_family <> p_family_id THEN
+    RAISE EXCEPTION 'Accounts do not belong to the same family';
+  END IF;
+
+  -- 1) Salida de la cuenta de origen (disminuye saldo)
+  INSERT INTO transactions (
+    family_id, created_by, type, category,
+    description, amount, date, account_id, notes, auto_source
+  )
+  VALUES (
+    p_family_id, auth.uid(), 'expense', 'credit_card_payment',
+    'Pago tarjeta crédito', p_amount, p_date, p_from_account_id, p_notes, 'credit_payment'
+  );
+
+  -- 2) Entrada en la tarjeta (reduce deuda)
+  INSERT INTO transactions (
+    family_id, created_by, type, category,
+    description, amount, date, account_id, notes, auto_source
+  )
+  VALUES (
+    p_family_id, auth.uid(), 'credit_payment', 'credit_card_payment',
+    'Pago recibido tarjeta', p_amount, p_date, p_credit_account_id, p_notes, 'credit_payment'
+  );
+
+RETURN json_build_object('ok', TRUE);  
+END;
+$$;
+
+
 
 -- ── Deudas ────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION rpc_pay_debt(p_debt_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE)

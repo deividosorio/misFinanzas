@@ -135,7 +135,7 @@ export const ACC_COLORS = [
 export const INCOME_CATS  = ['salary','freelance','investment','other_income']
 export const EXPENSE_CATS = ['food','housing','transport','health','entertainment',
   'education','clothing','utilities','insurance','mortgage','car','other_expense',
-  'dons','debts'
+  'dons','debts', 'credit_card_payment',
 ]
 export const SAVING_CATS  = ['emergency','vacation','retirement','goal']
 
@@ -146,7 +146,7 @@ export const CAT_COLORS = {
   entertainment:'#818cf8', education:'#38bdf8', clothing:'#f472b6',
   utilities:'#60a5fa', insurance:'#a78bfa', mortgage:'#f97316',
   car:'#facc15', other_expense:'#94a3b8', dons:'#fcd34d', debts:'#67e8f9',
-  emergency:'#fcd34d', vacation:'#67e8f9', retirement:'#c084fc', goal:'#86efac',
+  credit_card_payment:'#ff6b6b', emergency:'#fcd34d', vacation:'#67e8f9', retirement:'#c084fc', goal:'#86efac',
   transfer:'#94a3b8',
 }
 
