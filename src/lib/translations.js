@@ -220,6 +220,8 @@ const T = {
       insurance:     'Seguros',
       mortgage:      'Hipoteca',
       car:           'Auto',
+      dons:          'Diezmo',
+      debts:         'Deudas',
       other_expense: 'Otro gasto',
       // Ahorros
       emergency:     'Emergencias',
@@ -333,7 +335,7 @@ const T = {
       insurance:'Insurance', mortgage:'Mortgage', car:'Car',
       other_expense:'Other expense', emergency:'Emergency',
       vacation:'Vacation', retirement:'Retirement', goal:'Goal',
-      transfer:'Transfer',
+      transfer:'Transfer', dons: 'Dons', debts: 'Debts',
     },
   },
 
@@ -442,7 +444,7 @@ const T = {
       insurance:'Assurance', mortgage:'Hypothèque', car:'Auto',
       other_expense:'Autre dépense', emergency:'Urgences',
       vacation:'Vacances', retirement:'Retraite', goal:'Objectif',
-      transfer:'Transfert',
+      transfer:'Transfert', dons: 'Dons', debts: 'Dettes',
     },
   },
 }
