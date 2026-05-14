@@ -767,14 +767,15 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'Deuda no encontrada'; END IF;
   v_new_paid := LEAST(v_debt.total_amount, v_debt.paid_amount + p_amount);
   UPDATE debts SET paid_amount=v_new_paid, updated_at=NOW() WHERE id=p_debt_id;
-  IF NOT EXISTS(
-    SELECT 1 FROM transactions WHERE source_id=p_debt_id AND auto_source='debt_payment'
-    AND date=p_date AND amount=p_amount AND family_id=v_fid AND NOT is_void
-  ) THEN
-    INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-    VALUES (v_fid,auth.uid(),'expense',v_debt.category,'Pago: '||v_debt.name,p_amount,p_date,v_debt.linked_account_id,'debt_payment',p_debt_id)
-    RETURNING id INTO v_txn_id;
-  END IF;
+  -- No necesario porque crearia doble movimiento si se paga por medio de recurrente.
+  -- IF NOT EXISTS(
+  --   SELECT 1 FROM transactions WHERE source_id=p_debt_id AND auto_source='debt_payment'
+  --   AND date=p_date AND amount=p_amount AND family_id=v_fid AND NOT is_void
+  -- ) THEN
+  --   INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
+  --   VALUES (v_fid,auth.uid(),'expense',v_debt.category,'Pago: '||v_debt.name,p_amount,p_date,v_debt.linked_account_id,'debt_payment',p_debt_id)
+  --   RETURNING id INTO v_txn_id;
+  -- END IF;
   RETURN json_build_object('debt_id',p_debt_id,'paid_amount',v_new_paid,'remaining',v_debt.total_amount-v_new_paid,'completed',v_new_paid>=v_debt.total_amount,'transaction_id',v_txn_id);
 END;
 $$;
@@ -827,7 +828,7 @@ BEGIN
     WHERE source_id=p_rec_id AND auto_source='recurring' AND date=p_date AND family_id=v_fid AND NOT is_void
   ) THEN
     INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-    VALUES (v_fid,auth.uid(),'expense',v_rec.category,v_rec.name,v_rec.amount,p_date,v_rec.account_id,'recurring',p_rec_id)
+    VALUES (v_fid,auth.uid(),'expense',v_rec.category,'Pago: '||v_rec.name,v_rec.amount,p_date,v_rec.account_id,'recurring',p_rec_id)
     RETURNING id INTO v_txn_id;
   END IF;
 

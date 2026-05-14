@@ -78,7 +78,7 @@ export default function Header() {
                 color:      'var(--muted)',
                 fontWeight: 500,
                 // Ocultar en pantallas muy pequeñas
-                '@media(max-width:480px)': { display:'none' },
+                '@media(maxWidth:480px)': { display:'none' },
               }}>
                 {family.name}
               </span>
