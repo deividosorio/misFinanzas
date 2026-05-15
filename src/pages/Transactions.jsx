@@ -70,14 +70,15 @@ export default function Transactions() {
           ))}
         </div>
 
-        {/* //Acciones
+       {/* acciones */} 
+        
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           <CsvImportButton />
           <CsvExportButton txns={txns} />
           <Btn size="sm" variant="primary" onClick={() => openModal('tx')}>
             + {t.addTransaction}
           </Btn>
-        </div> */}
+        </div>
       </div>
 
       {/* Lista */}
