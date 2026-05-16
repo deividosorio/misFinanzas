@@ -70,3 +70,18 @@ Ejecuta el bloque al final de `supabase-schema.sql` en el SQL Editor de Supabase
 ```bash
 npm install && npm run dev
 ```
+
+## Diseño
+
+Tu diseño basado en:
+* accounts (activos + pasivos)
+* transactions (income/expense/saving)
+* recurring_payments
+* debts (solo préstamos reales)
+* es simple, limpio, coherente, y suficiente para el 95% de apps financieras personales.
+
+
+soporta pagos de tarjeta sin doble entrada
+El sistema no es doble entrada formal, pero emula el comportamiento contable usando:
+    expense → resta saldo en activos / aumenta deuda en tarjetas
+    income → suma saldo en activos / reduce deuda en tarjetas

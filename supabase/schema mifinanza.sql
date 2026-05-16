@@ -83,7 +83,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE member_status AS ENUM ('pending','active','suspended');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $$ BEGIN CREATE TYPE txn_type AS ENUM ('income','expense','saving','transfer', 'debt_payment', 'credit_payment');
+DO $$ BEGIN CREATE TYPE txn_type AS ENUM ('income','expense','saving','transfer', 'debt_payment');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN CREATE TYPE app_theme AS ENUM ('dark','light','system');
@@ -798,13 +798,13 @@ BEGIN
     'Pago tarjeta crédito', p_amount, p_date, p_from_account_id, p_notes, 'credit_payment'
   );
 
-  -- 2) Entrada en la tarjeta (reduce deuda)
-  INSERT INTO transactions (
+  -- 2) Entrada en la tarjeta (reduce deuda → debe ser INCOME)
+  insert into transactions (
     family_id, created_by, type, category,
     description, amount, date, account_id, notes, auto_source
   )
-  VALUES (
-    p_family_id, auth.uid(), 'credit_payment', 'credit_card_payment',
+  values (
+    p_family_id, auth.uid(), 'income', 'credit_card_payment',
     'Pago recibido tarjeta', p_amount, p_date, p_credit_account_id, p_notes, 'credit_payment'
   );
 
@@ -825,15 +825,14 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'Deuda no encontrada'; END IF;
   v_new_paid := LEAST(v_debt.total_amount, v_debt.paid_amount + p_amount);
   UPDATE debts SET paid_amount=v_new_paid, updated_at=NOW() WHERE id=p_debt_id;
-  -- No necesario porque crearia doble movimiento si se paga por medio de recurrente.
-  -- IF NOT EXISTS(
-  --   SELECT 1 FROM transactions WHERE source_id=p_debt_id AND auto_source='debt_payment'
-  --   AND date=p_date AND amount=p_amount AND family_id=v_fid AND NOT is_void
-  -- ) THEN
-  --   INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-  --   VALUES (v_fid,auth.uid(),'expense',v_debt.category,'Pago: '||v_debt.name,p_amount,p_date,v_debt.linked_account_id,'debt_payment',p_debt_id)
-  --   RETURNING id INTO v_txn_id;
-  -- END IF;
+  IF NOT EXISTS(
+    SELECT 1 FROM transactions WHERE source_id=p_debt_id AND auto_source='debt_payment'
+    AND date=p_date AND amount=p_amount AND family_id=v_fid AND NOT is_void
+  ) THEN
+    INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
+    VALUES (v_fid,auth.uid(),'expense',v_debt.category,'Pago: '||v_debt.name,p_amount,p_date,v_debt.linked_account_id,'debt_payment',p_debt_id)
+    RETURNING id INTO v_txn_id;
+  END IF;
   RETURN json_build_object('debt_id',p_debt_id,'paid_amount',v_new_paid,'remaining',v_debt.total_amount-v_new_paid,'completed',v_new_paid>=v_debt.total_amount,'transaction_id',v_txn_id);
 END;
 $$;
@@ -1001,15 +1000,16 @@ CREATE OR REPLACE FUNCTION rpc_dashboard_summary(p_from DATE, p_to DATE, p_accou
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
 DECLARE
   v_fid UUID := auth_family_id();
-  v_income NUMERIC; v_expense NUMERIC; v_saving NUMERIC;
+  v_income NUMERIC; v_expense NUMERIC; v_saving NUMERIC; v_payment NUMERIC;
   v_pie JSON; v_trend JSON;
 BEGIN
   IF auth_status()!='active' THEN RAISE EXCEPTION 'Cuenta pendiente'; END IF;
   SELECT
     COALESCE(SUM(amount) FILTER(WHERE type='income'),0),
     COALESCE(SUM(amount) FILTER(WHERE type='expense'),0),
-    COALESCE(SUM(amount) FILTER(WHERE type='saving'),0)
-  INTO v_income, v_expense, v_saving
+    COALESCE(SUM(amount) FILTER(WHERE type='saving'),0),
+    COALESCE(SUM(amount) FILTER(WHERE type='payment'),0)
+  INTO v_income, v_expense, v_saving, v_payment
   FROM transactions
   WHERE family_id=v_fid AND date BETWEEN p_from AND p_to AND NOT is_void
   AND (p_account_id IS NULL OR account_id=p_account_id);
@@ -1035,7 +1035,7 @@ BEGIN
   ) t;
 
   RETURN json_build_object(
-    'income',v_income,'expense',v_expense,'saving',v_saving,
+    'income',v_income,'expense',v_expense,'saving',v_saving,'payment',v_payment,
     'balance',v_income-v_expense-v_saving,
     'savings_rate',CASE WHEN v_income>0 THEN ROUND((v_saving/v_income)*100,1) ELSE 0 END,
     'by_category',COALESCE(v_pie,'[]'::JSON),
