@@ -108,6 +108,7 @@ export function AppProvider({ children }) {
         supabase.from('profiles').select('*').eq('family_id', fid),
       ])
 
+      console.log('[MiFinanza] Data load results:', results)
       const safe = r =>
         r.status === 'fulfilled' && !r.value.error
           ? (r.value.data ?? [])
@@ -130,7 +131,9 @@ export function AppProvider({ children }) {
       if (sumErr) console.error("rpc_dashboard_summary error:", sumErr)
       if (sumData) setSummary(sumData)
 
-      const { data: nwData, error: nwErr } = await supabase.rpc('rpc_net_worth')
+      const { data: nwData, error: nwErr } = await supabase.rpc('rpc_net_worth_filtered', {
+        p_from: af.from, p_to: af.to, p_account_id: selAcc || null,
+      })
       if (nwErr) console.error("rpc_net_worth error:", nwErr)
       if (nwData) setNetWorth(nwData)
 
@@ -141,6 +144,7 @@ export function AppProvider({ children }) {
     }
   }, [family?.id, af, selAcc])
 
+  // Carga inicial y recarga al cambiar familia o estado de onboarding
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (data.session && family?.id && onboardingState === 'ready') {
@@ -148,6 +152,21 @@ export function AppProvider({ children }) {
       }
     })
   }, [family?.id, onboardingState])
+
+  // Dependencias de filtro: recarga datos al cambiar periodo o cuenta seleccionada
+  useEffect(() => {
+    if (family?.id && onboardingState === 'ready') {
+      loadData()
+    }
+  }, [af])
+
+  useEffect(() => {
+    if (family?.id && onboardingState === 'ready') {
+      loadData()
+    }
+  }, [selAcc])
+
+
 
   const applyFilter = () => setAf({
     from: pMode === 'month' ? selMonth + '-01' : rFrom,
@@ -233,7 +252,6 @@ export function AppProvider({ children }) {
     if (!error) await loadData()
     return { data, error }
   }
-
 
   // ── Cuentas ────────────────────────────────────────────────────────────
   const addAccount = async (acc) => {

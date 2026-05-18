@@ -132,7 +132,7 @@ export const ACC_COLORS = [
 ]
 
 // ── Categorías de transacciones ───────────────────────────────────────────────
-export const INCOME_CATS  = ['salary','freelance','investment','other_income']
+export const INCOME_CATS  = ['salary','freelance','investment','other_income', 'credit_card_payment_income']
 export const EXPENSE_CATS = ['food','housing','transport','health','entertainment',
   'education','clothing','utilities','insurance','mortgage','car','other_expense',
   'dons','debts', 'credit_card_payment',

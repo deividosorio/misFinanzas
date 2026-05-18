@@ -1000,32 +1000,35 @@ CREATE OR REPLACE FUNCTION rpc_dashboard_summary(p_from DATE, p_to DATE, p_accou
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
 DECLARE
   v_fid UUID := auth_family_id();
-  v_income NUMERIC; v_expense NUMERIC; v_saving NUMERIC; v_payment NUMERIC;
+  v_income NUMERIC; v_expense NUMERIC; v_saving NUMERIC; 
   v_pie JSON; v_trend JSON;
 BEGIN
   IF auth_status()!='active' THEN RAISE EXCEPTION 'Cuenta pendiente'; END IF;
   SELECT
-    COALESCE(SUM(amount) FILTER(WHERE type='income'),0),
-    COALESCE(SUM(amount) FILTER(WHERE type='expense'),0),
-    COALESCE(SUM(amount) FILTER(WHERE type='saving'),0),
-    COALESCE(SUM(amount) FILTER(WHERE type='payment'),0)
-  INTO v_income, v_expense, v_saving, v_payment
+    COALESCE(SUM(amount) FILTER(WHERE type='income' AND category <> 'credit_card_payment'),0),
+    COALESCE(SUM(amount) FILTER(WHERE type='expense' AND category <> 'credit_card_payment'),0),
+    COALESCE(SUM(amount) FILTER(WHERE type='saving'),0)
+  INTO v_income, v_expense, v_saving
   FROM transactions
   WHERE family_id=v_fid AND date BETWEEN p_from AND p_to AND NOT is_void
   AND (p_account_id IS NULL OR account_id=p_account_id);
 
+  -- GASTOS POR CATEGORÍA (EXCLUYENDO PAGOS DE TARJETA)
   SELECT json_agg(row_to_json(t)) INTO v_pie FROM (
     SELECT category, SUM(amount) AS value
     FROM transactions WHERE family_id=v_fid AND type='expense'
+    AND category <> 'credit_card_payment'
     AND date BETWEEN p_from AND p_to AND NOT is_void
     AND (p_account_id IS NULL OR account_id=p_account_id)
     GROUP BY category ORDER BY value DESC LIMIT 12
   ) t;
 
+  -- TENDENCIA MENSUAL (EXCLUYENDO PAGOS DE TARJETA)
   SELECT json_agg(row_to_json(t)) INTO v_trend FROM (
-    SELECT TO_CHAR(DATE_TRUNC('month',date),'YYYY-MM') AS month,
-      COALESCE(SUM(amount) FILTER(WHERE type='income'),0) AS income,
-      COALESCE(SUM(amount) FILTER(WHERE type='expense'),0) AS expense,
+    SELECT
+      TO_CHAR(DATE_TRUNC('month',date),'YYYY-MM') AS month,
+      COALESCE(SUM(amount) FILTER(WHERE type='income' AND category <> 'credit_card_payment'),0) AS income,
+      COALESCE(SUM(amount) FILTER(WHERE type='expense' AND category <> 'credit_card_payment'),0) AS expense,
       COALESCE(SUM(amount) FILTER(WHERE type='saving'),0) AS saving
     FROM transactions
     WHERE family_id=v_fid AND NOT is_void
@@ -1035,7 +1038,7 @@ BEGIN
   ) t;
 
   RETURN json_build_object(
-    'income',v_income,'expense',v_expense,'saving',v_saving,'payment',v_payment,
+    'income',v_income,'expense',v_expense,'saving',v_saving,
     'balance',v_income-v_expense-v_saving,
     'savings_rate',CASE WHEN v_income>0 THEN ROUND((v_saving/v_income)*100,1) ELSE 0 END,
     'by_category',COALESCE(v_pie,'[]'::JSON),
@@ -1049,7 +1052,7 @@ $$;
 -- Activos: saldo de cuentas checking/savings/investment/cash
 -- Pasivos crédito: deuda acumulada en credit_card/credit_line (mes actual)
 -- Pasivos largo plazo: deudas (hipoteca, auto, etc.)
-CREATE OR REPLACE FUNCTION rpc_net_worth()
+CREATE OR REPLACE FUNCTION rpc_net_worth_filtered(p_from DATE, p_to DATE, p_account_id UUID DEFAULT NULL)
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
 DECLARE
   v_fid UUID := auth_family_id();
@@ -1058,19 +1061,47 @@ BEGIN
   -- Activos: saldo de cuentas de débito/ahorro/inversión/efectivo
   SELECT COALESCE(SUM(
     a.opening_balance
-    + COALESCE((SELECT SUM(amount) FILTER(WHERE type='income')  FROM transactions WHERE account_id=a.id AND NOT is_void),0)
-    - COALESCE((SELECT SUM(amount) FILTER(WHERE type='expense') FROM transactions WHERE account_id=a.id AND NOT is_void),0)
-    - COALESCE((SELECT SUM(amount) FILTER(WHERE type='saving')  FROM transactions WHERE account_id=a.id AND NOT is_void),0)
-  ),0) INTO v_assets
+    + COALESCE((SELECT SUM(amount) 
+                FROM transactions
+                WHERE account_id=a.id
+                  AND type='income'
+                  AND category <> 'credit_card_payment'
+                  AND NOT is_void),0)
+    - COALESCE((SELECT SUM(amount)
+                FROM transactions
+                WHERE account_id=a.id
+                  AND type='expense'
+                  AND category <> 'credit_card_payment'
+                  AND NOT is_void),0)
+    - COALESCE((SELECT SUM(amount)
+                FROM transactions
+                WHERE account_id=a.id
+                  AND type='saving'
+                  AND NOT is_void),0)
+  ),0)
+  INTO v_assets
   FROM accounts a
-  WHERE a.family_id=v_fid AND a.subtype IN ('checking','savings','investment','cash') AND a.is_active=TRUE;
+  WHERE a.family_id=v_fid AND a.subtype IN ('checking','savings','investment','cash') AND a.is_active=TRUE
+  AND (p_account_id IS NULL OR a.id = p_account_id);
 
   -- Pasivos de corto plazo: deuda acumulada en tarjetas/líneas de crédito
+  -- TARJETAS (deuda real = gastos - pagos)
   SELECT COALESCE(SUM(
-    COALESCE((SELECT SUM(amount) FILTER(WHERE type='expense') FROM transactions WHERE account_id=a.id AND NOT is_void),0)
+    COALESCE((SELECT SUM(amount)
+              FROM transactions
+              WHERE account_id=a.id
+                AND type='expense'
+                AND NOT is_void),0)
+    -
+    COALESCE((SELECT SUM(amount)
+              FROM transactions
+              WHERE account_id=a.id
+                AND type='income'
+                AND NOT is_void),0)
   ),0) INTO v_credit_debt
   FROM accounts a
-  WHERE a.family_id=v_fid AND a.subtype IN ('credit_card','credit_line') AND a.is_active=TRUE;
+  WHERE a.family_id=v_fid AND a.subtype IN ('credit_card','credit_line') AND a.is_active=TRUE
+  AND (p_account_id IS NULL OR a.id = p_account_id);
 
   -- Pasivos de largo plazo: saldo restante de deudas (hipoteca, autos)
   SELECT COALESCE(SUM(total_amount-paid_amount),0) INTO v_long_debt

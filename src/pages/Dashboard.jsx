@@ -214,6 +214,7 @@ export default function Dashboard() {
                             <CreditAccountCard
                                 key={a.id}
                                 account={a}
+                                txns={recentTxns} // Pasamos todas las transacciones para que calcule deuda y disponible
                                 onClick={() => { setSelAcc(a.id); setTab('transactions') }}
                             />
                         ))}
@@ -322,63 +323,63 @@ function AssetAccountCard({ account: a, onClick }) {
 
 // ── CreditAccountCard ─────────────────────────────────────────────────────────
 // Muestra la deuda acumulada del mes y el disponible restante
-function CreditAccountCard({ account: a, onClick }) {
-    const cfg = ACCOUNT_SUBTYPES[a.subtype]
-    const debt = a.month_debt || 0
-    const avail = a.available ?? (a.credit_limit - debt)
-    const usedPct = pct(debt, a.credit_limit)
-    const barColor = usedPct > 80 ? 'var(--red)' : usedPct > 50 ? 'var(--yellow)' : 'var(--green)'
+// function CreditAccountCard({ account: a, onClick }) {
+//     const cfg = ACCOUNT_SUBTYPES[a.subtype]
+//     const debt = a.month_debt || 0
+//     const avail = a.available ?? (a.credit_limit - debt)
+//     const usedPct = pct(debt, a.credit_limit)
+//     const barColor = usedPct > 80 ? 'var(--red)' : usedPct > 50 ? 'var(--yellow)' : 'var(--green)'
 
-    return (
-        <div onClick={onClick} style={{
-            background: a.color + '10',
-            border: `1px solid ${a.color}44`,
-            borderRadius: 'var(--radius-sm)',
-            padding: '12px 14px',
-            cursor: 'pointer',
-            transition: 'all .15s',
-        }}
-            onMouseEnter={e => e.currentTarget.style.background = a.color + '18'}
-            onMouseLeave={e => e.currentTarget.style.background = a.color + '10'}
-        >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <span>💳</span>
-                <div style={{
-                    fontSize: 12, fontWeight: 600, color: a.color,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
-                }}>
-                    {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
-                </div>
-            </div>
-            {/* Deuda del mes */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <div>
-                    <div style={{
-                        fontSize: 9, color: 'var(--muted)', textTransform: 'uppercase',
-                        letterSpacing: 0.5
-                    }}>Deuda mes</div>
-                    <div className="mono" style={{ fontSize: 16, color: 'var(--red)' }}>
-                        {fmt(debt)}
-                    </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                    <div style={{
-                        fontSize: 9, color: 'var(--muted)', textTransform: 'uppercase',
-                        letterSpacing: 0.5
-                    }}>Disponible</div>
-                    <div className="mono" style={{ fontSize: 16, color: 'var(--green)' }}>
-                        {fmt(avail)}
-                    </div>
-                </div>
-            </div>
-            {/* Barra de utilización */}
-            <ProgressBar value={debt} max={a.credit_limit} height={5} color={barColor} />
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
-                {usedPct}% utilizado · Límite: {fmt(a.credit_limit)}
-            </div>
-        </div>
-    )
-}
+//     return (
+//         <div onClick={onClick} style={{
+//             background: a.color + '10',
+//             border: `1px solid ${a.color}44`,
+//             borderRadius: 'var(--radius-sm)',
+//             padding: '12px 14px',
+//             cursor: 'pointer',
+//             transition: 'all .15s',
+//         }}
+//             onMouseEnter={e => e.currentTarget.style.background = a.color + '18'}
+//             onMouseLeave={e => e.currentTarget.style.background = a.color + '10'}
+//         >
+//             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+//                 <span>💳</span>
+//                 <div style={{
+//                     fontSize: 12, fontWeight: 600, color: a.color,
+//                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+//                 }}>
+//                     {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
+//                 </div>
+//             </div>
+//             {/* Deuda del mes */}
+//             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+//                 <div>
+//                     <div style={{
+//                         fontSize: 9, color: 'var(--muted)', textTransform: 'uppercase',
+//                         letterSpacing: 0.5
+//                     }}>Deuda mes</div>
+//                     <div className="mono" style={{ fontSize: 16, color: 'var(--red)' }}>
+//                         {fmt(debt)}
+//                     </div>
+//                 </div>
+//                 <div style={{ textAlign: 'right' }}>
+//                     <div style={{
+//                         fontSize: 9, color: 'var(--muted)', textTransform: 'uppercase',
+//                         letterSpacing: 0.5
+//                     }}>Disponible</div>
+//                     <div className="mono" style={{ fontSize: 16, color: 'var(--green)' }}>
+//                         {fmt(avail)}
+//                     </div>
+//                 </div>
+//             </div>
+//             {/* Barra de utilización */}
+//             <ProgressBar value={debt} max={a.credit_limit} height={5} color={barColor} />
+//             <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+//                 {usedPct}% utilizado · Límite: {fmt(a.credit_limit)}
+//             </div>
+//         </div>
+//     )
+// }
 
 // ── MiniTxRow ─────────────────────────────────────────────────────────────────
 function MiniTxRow({ tx, isLast }) {
@@ -431,6 +432,155 @@ function MiniTxRow({ tx, isLast }) {
             {/* Monto */}
             <div className="mono" style={{ color: amtColor, fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
                 {sign}{fmt(tx.amount)}
+            </div>
+        </div>
+    )
+}
+
+
+// ── computeCreditCardStats ─────────────────────────────────────────────────
+function computeCreditCardStats(account, txns) {
+    const limit = account.credit_limit || 0
+
+    // Todas las transacciones de esta tarjeta
+    const cardTxns = txns.filter(tx => tx.account_id === account.id && !tx.is_void)
+
+    // Deuda real = opening_balance + expenses - income
+    const debt = account.opening_balance +
+        cardTxns.reduce((sum, tx) =>
+            tx.type === 'expense'
+                ? sum + tx.amount
+                : tx.type === 'income'
+                    ? sum - tx.amount
+                    : sum
+            , 0)
+
+    const available = Math.max(0, limit - debt)
+    const usedPct = limit > 0 ? Math.round((debt / limit) * 100) : 0
+
+    // Pagos del mes (income con categoría credit_card_payment)
+    const month = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const paymentsThisMonth = cardTxns
+        .filter(tx =>
+            tx.type === 'income' &&
+            tx.category === 'credit_card_payment' &&
+            tx.date.startsWith(month)
+        )
+        .reduce((sum, tx) => sum + tx.amount, 0)
+
+    // Gastos del mes (expense)
+    const expensesThisMonth = cardTxns
+        .filter(tx =>
+            tx.type === 'expense' &&
+            tx.date.startsWith(month)
+        )
+        .reduce((sum, tx) => sum + tx.amount, 0)
+
+    return {
+        debt,
+        available,
+        usedPct,
+        paymentsThisMonth,
+        expensesThisMonth,
+        limit,
+    }
+}
+
+// Calcula deuda, disponible, % utilizado, pagos y gastos del mes para una tarjeta
+function CreditAccountCard({ account: a, txns, onClick }) {
+    const {
+        debt,
+        available,
+        usedPct,
+        paymentsThisMonth,
+        expensesThisMonth,
+        limit,
+    } = computeCreditCardStats(a, txns)
+
+    const barColor =
+        usedPct > 80 ? 'var(--red)' :
+            usedPct > 50 ? 'var(--yellow)' :
+                'var(--green)'
+
+    return (
+        <div
+            onClick={onClick}
+            style={{
+                background: a.color + '10',
+                border: `1px solid ${a.color}44`,
+                borderRadius: 'var(--radius-sm)',
+                padding: '14px 16px',
+                cursor: 'pointer',
+                transition: 'all .15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = a.color + '18'}
+            onMouseLeave={e => e.currentTarget.style.background = a.color + '10'}
+        >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <span>💳</span>
+                <div style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: a.color,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                }}>
+                    {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
+                </div>
+            </div>
+
+            {/* Deuda y disponible */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div>
+                    <div className="lbl-sm">Deuda actual</div>
+                    <div className="mono" style={{ fontSize: 18, color: 'var(--red)' }}>
+                        {fmt(debt)}
+                    </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                    <div className="lbl-sm">Disponible</div>
+                    <div className="mono" style={{ fontSize: 18, color: 'var(--green)' }}>
+                        {fmt(available)}
+                    </div>
+                </div>
+            </div>
+
+            {/* Barra de utilización */}
+            <div style={{
+                height: 6,
+                borderRadius: 4,
+                background: 'var(--border)',
+                overflow: 'hidden',
+                marginBottom: 6,
+            }}>
+                <div style={{
+                    width: `${usedPct}%`,
+                    height: '100%',
+                    background: barColor,
+                }} />
+            </div>
+
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
+                {usedPct}% utilizado · Límite {fmt(limit)}
+            </div>
+
+            {/* Pagos y gastos del mes */}
+            <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: 11,
+                color: 'var(--muted)',
+            }}>
+                <div>
+                    Pagado este mes:
+                    <span style={{ color: 'var(--green)', fontWeight: 600 }}> {fmt(paymentsThisMonth)}</span>
+                </div>
+                <div>
+                    Gastos este mes:
+                    <span style={{ color: 'var(--red)', fontWeight: 600 }}> {fmt(expensesThisMonth)}</span>
+                </div>
             </div>
         </div>
     )
