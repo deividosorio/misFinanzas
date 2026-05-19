@@ -861,7 +861,7 @@ $$;
 
 -- ── Recurrentes ───────────────────────────────────────────────
 -- rpc_mark_recurring_paid: marca pagado y abona a deuda si está vinculada
-CREATE OR REPLACE FUNCTION rpc_mark_recurring_paid(p_rec_id UUID, p_date DATE DEFAULT CURRENT_DATE)
+CREATE OR REPLACE FUNCTION rpc_mark_recurring_paid(p_rec_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE)
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
   v_rec recurring_payments; v_next DATE; v_txn_id UUID; v_fid UUID := auth_family_id();
@@ -885,13 +885,13 @@ BEGIN
     WHERE source_id=p_rec_id AND auto_source='recurring' AND date=p_date AND family_id=v_fid AND NOT is_void
   ) THEN
     INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-    VALUES (v_fid,auth.uid(),'expense',v_rec.category,'Pago: '||v_rec.name,v_rec.amount,p_date,v_rec.account_id,'recurring',p_rec_id)
+    VALUES (v_fid,auth.uid(),'expense',v_rec.category,'Pago: '||v_rec.name,p_amount,p_date,v_rec.account_id,'recurring',p_rec_id)
     RETURNING id INTO v_txn_id;
   END IF;
 
   -- Si tiene deuda vinculada, abonar automáticamente
   IF v_rec.linked_debt_id IS NOT NULL THEN
-    PERFORM rpc_pay_debt(v_rec.linked_debt_id, v_rec.amount, p_date);
+    PERFORM rpc_pay_debt(v_rec.linked_debt_id, p_amount, p_date);
   END IF;
 
   RETURN json_build_object('recurring_id',p_rec_id,'next_due',v_next,'transaction_id',v_txn_id,'debt_abonado',v_rec.linked_debt_id IS NOT NULL);

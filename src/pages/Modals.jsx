@@ -515,6 +515,30 @@ export function TxModal({ onClose }) {
             <Modal title="Pagar tarjeta de crédito" onClose={handleClose}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 
+                    {/* Tipo de transacción */}
+                    <Field label={t.type}>
+                        <div style={{ display: 'flex', gap: 5 }}>
+                            {[
+                                { id: 'income', label: t.income, color: 'var(--green)' },
+                                { id: 'expense', label: t.expense, color: 'var(--red)' },
+                                { id: 'saving', label: t.saving, color: 'var(--purple)' },
+                                { id: 'payment', label: t.payment, color: 'var(--blue)' },
+                            ].map(tp => (
+                                <button key={tp.id} onClick={() => set('type', tp.id)} style={{
+                                    flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
+                                    border: `1px solid ${f.type === tp.id ? tp.color + '66' : 'var(--border)'}`,
+                                    background: f.type === tp.id ? tp.color + '12' : 'transparent',
+                                    color: f.type === tp.id ? tp.color : 'var(--muted)',
+                                    fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
+                                    cursor: 'pointer', transition: 'all .15s',
+                                }}>
+                                    {tp.label}
+                                </button>
+                            ))}
+                        </div>
+                    </Field>
+
+
                     {/* Tarjeta a pagar (ya seleccionada) */}
                     <Field label="Tarjeta de crédito">
                         <Select
@@ -622,6 +646,7 @@ export function TxModal({ onClose }) {
                         ))}
                     </div>
                 </Field>
+
 
                 {/* Categoría */}
                 <Field label={t.category}>

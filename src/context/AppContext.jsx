@@ -345,9 +345,10 @@ export function AppProvider({ children }) {
     await loadData()
   }
 
-  const markRecPaid = async (id, date = toDay()) => {
+  const markRecPaid = async (id, date = toDay(), amount) => {
     const rec = recurring.find(r => r.id === id)
     if (!rec) return { error: new Error('No encontrado') }
+    const { error } = await supabase.rpc('rpc_mark_recurring_paid', { p_rec_id: id, p_amount: amount, p_date: date })
     console.log('[MiFinanza] markRecPaid result:', { error })
     if (!error) await loadData()
     return { error }

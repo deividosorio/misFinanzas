@@ -223,7 +223,12 @@ const T = {
       car:           'Auto',
       dons:          'Diezmo',
       debts:         'Deudas',
-      credit_card_payment:       'Pago TC',
+      transfer:      'Transferencia',
+      travel:        'Viajes',
+      subscription:  'Suscripciones',
+      gift:          'Regalos',
+      transfer_to_saving: 'Transferencia a ahorros',
+      credit_card_payment: 'Pago tarjeta de crédito',
       other_expense: 'Otro gasto',
       // Ahorros
       emergency:     'Emergencias',
@@ -339,6 +344,7 @@ const T = {
       other_expense:'Other expense', emergency:'Emergency',
       vacation:'Vacation', retirement:'Retirement', goal:'Goal',
       transfer:'Transfer', dons: 'Dons', debts: 'Debts', credit_card_payment: 'Credit card payment',
+      travel:'Travel', subscription:'Subscription', gift:'Gift', transfer_to_saving:'Transfer to saving',
     },
   },
 
@@ -449,6 +455,7 @@ const T = {
       other_expense:'Autre dépense', emergency:'Urgences',
       vacation:'Vacances', retirement:'Retraite', goal:'Objectif',
       transfer:'Transfert', dons: 'Dons', debts: 'Dettes', credit_card_payment: 'Paiement carte',
+      travel:'Voyage', subscription:'Abonnement', gift:'Cadeau', transfer_to_saving:'Transfert vers épargne',
     },
   },
 }

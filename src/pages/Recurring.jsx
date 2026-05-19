@@ -208,7 +208,7 @@ function RecurringCard({ rec }) {
 
   const handleConfirmPay = async () => {
     setPayLoading(true)
-    const { error } = await markRecPaid(rec.id)
+    const { error } = await markRecPaid(rec.id, rec.amount) 
     if (!error) {
       setPaySuccess(true)
       setShowPayModal(false)
@@ -354,6 +354,9 @@ function RecurringCard({ rec }) {
 function PayConfirmModal({ rec, account, isCredit, accCfg, linkedDebt, loading, onConfirm, onClose }) {
   const today = toDay()
 
+   // Estado local para permitir editar el monto
+  const [amount, setAmount] = useState(rec.amount)
+
   // Calcular próxima fecha
   const nx = new Date(rec.next_due)
   if (rec.frequency === 'monthly') nx.setMonth(nx.getMonth() + 1)
@@ -380,7 +383,7 @@ function PayConfirmModal({ rec, account, isCredit, accCfg, linkedDebt, loading, 
           background: 'var(--bg)', border: '1px solid var(--border)',
           borderRadius: 'var(--radius-sm)', padding: 16, marginBottom: 14,
         }}>
-          {/* Nombre y monto */}
+          {/* Nombre y monto editable */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 14 }}>{rec.name}</div>
@@ -388,9 +391,23 @@ function PayConfirmModal({ rec, account, isCredit, accCfg, linkedDebt, loading, 
                 {today} · {{ monthly: 'Mensual', biweekly: 'Quincenal', weekly: 'Semanal', yearly: 'Anual' }[rec.frequency]}
               </div>
             </div>
-            <div className="mono" style={{ fontSize: 18, color: 'var(--red)' }}>
+            {/* <div className="mono" style={{ fontSize: 18, color: 'var(--red)' }}>
               {fmt(rec.amount)}
-            </div>
+            </div> */}
+            {/* INPUT DE MONTO */}
+            <input
+              type="number"
+              value={amount}
+              min={0}
+              step="0.01"
+              onChange={e => setAmount(parseFloat(e.target.value) || 0)}
+              style={{
+                width: 100, textAlign: 'right',
+                fontSize: 18, fontFamily: 'var(--font-mono)',
+                padding: '4px 6px', borderRadius: 8, border: '1px solid var(--border)',
+                background: 'var(--bg)', color: 'var(--text)',
+              }}
+            />
           </div>
 
           <div style={{ height: 1, background: 'var(--border)', marginBottom: 12 }} />
@@ -469,12 +486,13 @@ function PayConfirmModal({ rec, account, isCredit, accCfg, linkedDebt, loading, 
           </div>
         </div>
 
+        {/* Botones */}
         <div style={{ display: 'flex', gap: 8 }}>
           <Btn variant="ghost" style={{ flex: 1 }} onClick={onClose} disabled={loading}>
             Cancelar
           </Btn>
-          <Btn variant="success" style={{ flex: 2 }} onClick={onConfirm} disabled={loading}>
-            {loading ? 'Registrando...' : `✓ Confirmar ${fmt(rec.amount)}`}
+          <Btn variant="success" style={{ flex: 2 }} onClick={() => onConfirm(amount)} disabled={loading}>
+            {loading ? 'Registrando...' : `✓ Confirmar ${fmt(amount)}`}
           </Btn>
         </div>
       </div>
