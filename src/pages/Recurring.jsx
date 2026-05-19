@@ -206,9 +206,9 @@ function RecurringCard({ rec }) {
   // Deuda vinculada
   const linkedDebt = debts.find(d => d.id === rec.linked_debt_id)
 
-  const handleConfirmPay = async () => {
+  const handleConfirmPay = async (amount) => {
     setPayLoading(true)
-    const { error } = await markRecPaid(rec.id, rec.amount) 
+    const { error } = await markRecPaid(rec.id, toDay(), amount)
     if (!error) {
       setPaySuccess(true)
       setShowPayModal(false)
