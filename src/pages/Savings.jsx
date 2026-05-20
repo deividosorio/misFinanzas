@@ -28,7 +28,7 @@ import { useApp } from '../context/AppContext'
 import { Card, Btn, SectionHeader, ProgressBar, Empty } from '../components/ui/index'
 import { EditSavingsGoalModal } from './EditModals'
 import { GoalModal } from './Modals'
-import { fmt, pct, CREDIT_SUBTYPES } from '../lib/constants'
+import { fmt, pct, CREDIT_SUBTYPES, toDay } from '../lib/constants'
 
 export default function Savings() {
   const { t, goals, modal, openModal, accounts } = useApp()
@@ -132,7 +132,7 @@ export default function Savings() {
 
 // ── SavingsGoalCard — Tarjeta de meta de ahorro ───────────────────────────────
 function SavingsGoalCard({ goal }) {
-  const { t, depositGoal, deleteGoal } = useApp()
+  const { t, depositGoal, deleteGoal, accounts } = useApp()
 
   const [inputVal,   setInputVal]   = useState('')
   const [loading,    setLoading]    = useState(false)

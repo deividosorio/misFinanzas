@@ -253,6 +253,25 @@ export function AppProvider({ children }) {
     return { data, error }
   }
 
+  const transferToSaving = async ({ from_account_id, to_account_id, category, description, amount, date = toDay(), notes }) => {
+    if (!family?.id) return { error: new Error('Familia no definida') }
+    if (!from_account_id || !to_account_id) return { error: new Error('Cuentas inválidas') }
+    if (from_account_id === to_account_id) return { error: new Error('La cuenta origen y destino no pueden coincidir') }
+
+    const { data, error } = await supabase.rpc('rpc_transfer_to_saving', {
+      p_from_account_id: from_account_id,
+      p_to_account_id: to_account_id,
+      p_amount: parseFloat(amount),
+      p_category: category || null,
+      p_description: description || null,
+      p_date: date,
+      p_notes: notes || null,
+    })
+
+    if (!error) await loadData()
+    return { data, error }
+  }
+
   // ── Cuentas ────────────────────────────────────────────────────────────
   const addAccount = async (acc) => {
     if (!isFamilyAdmin) return { error: new Error('Solo el admin puede crear cuentas') }
