@@ -297,7 +297,31 @@ export function AppProvider({ children }) {
   }
 
   const editDebt = async (id, changes) => {
-    const { error } = await supabase.rpc('rpc_update_debt', { p_debt_id: id, ...changes })
+    const {
+      name,
+      total_amount,
+      monthly_payment,
+      interest_rate,
+      start_date,
+      category,
+      notes,
+      linked_account_id,
+      is_active,
+    } = changes
+
+    const { error } = await supabase.rpc('rpc_update_debt', {
+      p_debt_id: id,
+      p_name: name ?? null,
+      p_total_amount: total_amount ?? null,
+      p_monthly_payment: monthly_payment ?? null,
+      p_interest_rate: interest_rate ?? null,
+      p_start_date: start_date ?? null,
+      p_category: category ?? null,
+      p_notes: notes ?? null,
+      p_is_active: is_active ?? null,
+      p_linked_account_id: linked_account_id ?? null,
+    })
+    console.log('[MiFinanza] editDebt result:', { error })
     if (!error) await loadData()
     return { error }
   }
@@ -366,11 +390,16 @@ export function AppProvider({ children }) {
   const deleteGoal = async (id) => {
     await supabase.from('savings_goals').delete().eq('id', id); await loadData()
   }
-  const depositGoal = async (id, amount, date = toDay()) => {
+  const depositGoal = async (id, amount, date = toDay(), from_account_id = null) => {
     const goal = goals.find(g => g.id === id)
     if (!goal) return { error: new Error('Meta no encontrada') }
-    const newAmt = Math.min(goal.target_amount, goal.current_amount + amount)
-    const { error } = await supabase.rpc('rpc_deposit_savings_goal', { p_goal_id: id, p_amount: amount, p_date: date, p_account_id: goal.account_id || null })
+    const { error } = await supabase.rpc('rpc_deposit_savings_goal', {
+      p_goal_id: id,
+      p_amount: amount,
+      p_date: date,
+      p_account_id: goal.account_id || null,
+      p_from_account_id: from_account_id || null,
+    })
     if (!error) await loadData(); return { error }
   }
   const addKidGoal = async (goal) => {
@@ -415,6 +444,7 @@ export function AppProvider({ children }) {
     addDebt, editDebt, deleteDebt, payDebt,
     addRecurring, editRecurring, deleteRecurring, markRecPaid,
     addGoal, editGoal, deleteGoal, depositGoal,
+    transferToSaving,
     addKidGoal, depositKidGoal,
     setMemberStatus, setMemberRole,
     getAccount, getMember, reload: loadData,

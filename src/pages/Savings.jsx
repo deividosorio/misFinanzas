@@ -28,10 +28,10 @@ import { useApp } from '../context/AppContext'
 import { Card, Btn, SectionHeader, ProgressBar, Empty } from '../components/ui/index'
 import { EditSavingsGoalModal } from './EditModals'
 import { GoalModal } from './Modals'
-import { fmt, pct } from '../lib/constants'
+import { fmt, pct, CREDIT_SUBTYPES } from '../lib/constants'
 
 export default function Savings() {
-  const { t, goals, modal, openModal } = useApp()
+  const { t, goals, modal, openModal, accounts } = useApp()
 
   // Filtro activas / completadas
   const [showCompleted, setShowCompleted] = useState(false)
@@ -138,9 +138,11 @@ function SavingsGoalCard({ goal }) {
   const [loading,    setLoading]    = useState(false)
   const [success,    setSuccess]    = useState('')
   const [error,      setError]      = useState('')
+  const [sourceAccountId, setSourceAccountId] = useState('')
   const [editing,    setEditing]    = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
 
+  const sourceAccounts = accounts.filter(a => a.is_active && !CREDIT_SUBTYPES.includes(a.subtype) && a.id !== goal.account_id)
   const current     = goal.current_amount || 0
   const target      = goal.target_amount  || 0
   const progress    = pct(current, target)
@@ -170,6 +172,10 @@ function SavingsGoalCard({ goal }) {
       setError('Ingresa un monto válido')
       return
     }
+    if (!sourceAccountId) {
+      setError('Selecciona la cuenta de origen')
+      return
+    }
     if (amount > remaining) {
       setError(`El monto supera lo que falta (${fmt(remaining)})`)
       return
@@ -177,12 +183,13 @@ function SavingsGoalCard({ goal }) {
 
     setLoading(true)
     setError('')
-    const { error: err } = await depositGoal(goal.id, amount)
+    const { error: err } = await depositGoal(goal.id, amount, toDay(), sourceAccountId)
     if (err) {
       setError(err.message)
     } else {
-      setSuccess(`✓ ${fmt(amount)} depositados · Transacción creada automáticamente`)
+      setSuccess(`✓ ${fmt(amount)} transferidos · Transacción creada automáticamente`)
       setInputVal('')
+      setSourceAccountId('')
       setTimeout(() => setSuccess(''), 3000)
     }
     setLoading(false)
@@ -337,36 +344,60 @@ function SavingsGoalCard({ goal }) {
         ) : (
           /* Input de depósito */
           <div>
-            <div style={{ display:'flex', gap:6 }}>
-              <input
-                type="number"
-                value={inputVal}
-                onChange={e => { setInputVal(e.target.value); setError('') }}
-                placeholder="Monto a depositar"
-                onKeyDown={e => e.key === 'Enter' && handleDeposit()}
-                min="0"
-                step="0.01"
-                style={{
-                  flex:1, background:'var(--bg)', border:'1px solid var(--border)',
-                  borderRadius:'var(--radius-sm)', padding:'8px 12px',
-                  color:'var(--text)', fontFamily:'var(--font-body)',
-                  fontSize:13, outline:'none', transition:'border .15s',
-                }}
-                onFocus={e => e.target.style.borderColor = goal.color || 'var(--blue)'}
-                onBlur={e  => e.target.style.borderColor = 'var(--border)'}
-              />
-              <Btn
-                variant="primary"
-                size="sm"
-                onClick={handleDeposit}
-                disabled={loading || !inputVal}
-                style={{ background:goal.color || 'var(--blue)', flexShrink:0 }}
-              >
-                {loading ? '...' : `+ ${t.deposit}`}
-              </Btn>
+            <div style={{ display:'flex', gap:6, flexDirection:'column' }}>
+              <div>
+                <div style={{ fontSize: 11, marginBottom: 4, color: 'var(--muted)' }}>
+                  {t.sourceAccount}
+                </div>
+                <select
+                  value={sourceAccountId}
+                  onChange={e => { setSourceAccountId(e.target.value); setError('') }}
+                  style={{
+                    width: '100%', background:'var(--bg)', border:'1px solid var(--border)',
+                    borderRadius:'var(--radius-sm)', padding:'8px 12px',
+                    color:'var(--text)', fontFamily:'var(--font-body)',
+                    fontSize:13, outline:'none', transition:'border .15s',
+                  }}
+                >
+                  <option value="">{t.selectSourceAccount}</option>
+                  {sourceAccounts.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}{a.last_four ? ` ···${a.last_four}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display:'flex', gap:6 }}>
+                <input
+                  type="number"
+                  value={inputVal}
+                  onChange={e => { setInputVal(e.target.value); setError('') }}
+                  placeholder={t.deposit}
+                  onKeyDown={e => e.key === 'Enter' && handleDeposit()}
+                  min="0"
+                  step="0.01"
+                  style={{
+                    flex:1, background:'var(--bg)', border:'1px solid var(--border)',
+                    borderRadius:'var(--radius-sm)', padding:'8px 12px',
+                    color:'var(--text)', fontFamily:'var(--font-body)',
+                    fontSize:13, outline:'none', transition:'border .15s',
+                  }}
+                  onFocus={e => e.target.style.borderColor = goal.color || 'var(--blue)'}
+                  onBlur={e  => e.target.style.borderColor = 'var(--border)'}
+                />
+                <Btn
+                  variant="primary"
+                  size="sm"
+                  onClick={handleDeposit}
+                  disabled={loading || !inputVal || !sourceAccountId}
+                  style={{ background:goal.color || 'var(--blue)', flexShrink:0 }}
+                >
+                  {loading ? '...' : `+ ${t.deposit}`}
+                </Btn>
+              </div>
             </div>
             <div style={{ fontSize:10, color:'var(--muted)', marginTop:5 }}>
-              ↺ Crea movimiento de ahorro automáticamente
+              {t.savingTransferAutoNote}
             </div>
           </div>
         )}

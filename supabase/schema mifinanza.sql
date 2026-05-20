@@ -812,49 +812,138 @@ RETURN json_build_object('ok', TRUE);
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION rpc_transfer_to_saving(
+  p_from_account_id UUID,
+  p_to_account_id UUID,
+  p_amount NUMERIC,
+  p_category TEXT,
+  p_description TEXT,
+  p_date DATE DEFAULT CURRENT_DATE,
+  p_notes TEXT DEFAULT NULL
+)
+RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  v_fid UUID := auth_family_id();
+  v_from_family UUID;
+  v_to_family UUID;
+  v_txn_from UUID;
+  v_txn_to UUID;
+BEGIN
+  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
+  IF p_amount<=0 THEN RAISE EXCEPTION 'Monto inválido'; END IF;
+  SELECT family_id INTO v_from_family FROM accounts WHERE id=p_from_account_id;
+  SELECT family_id INTO v_to_family   FROM accounts WHERE id=p_to_account_id;
+  IF v_from_family IS NULL OR v_to_family IS NULL OR v_from_family<>v_fid OR v_to_family<>v_fid THEN
+    RAISE EXCEPTION 'Cuenta de origen o destino no encontrada';
+  END IF;
+  IF p_from_account_id = p_to_account_id THEN
+    RAISE EXCEPTION 'Cuenta origen y destino no pueden coincidir';
+  END IF;
+  INSERT INTO transactions(
+    family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id
+  ) VALUES (
+    v_fid, auth.uid(), 'expense', 'transfer_to_saving',
+    COALESCE(p_description,'Transferencia a ahorro'), p_amount, p_date,
+    p_from_account_id, p_notes, 'saving_transfer', p_to_account_id
+  ) RETURNING id INTO v_txn_from;
+
+  INSERT INTO transactions(
+    family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id
+  ) VALUES (
+    v_fid, auth.uid(), 'saving', COALESCE(p_category,'goal'),
+    COALESCE(p_description,'Ahorro recibido'), p_amount, p_date,
+    p_to_account_id, p_notes, 'saving_transfer', p_from_account_id
+  ) RETURNING id INTO v_txn_to;
+
+  RETURN json_build_object(
+    'from_transaction_id', v_txn_from,
+    'to_transaction_id', v_txn_to
+  );
+END;
+$$;
+
 
 
 -- ── Deudas ────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION rpc_pay_debt(p_debt_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE)
+CREATE OR REPLACE FUNCTION rpc_pay_debt(
+  p_debt_id UUID,
+  p_amount NUMERIC,
+  p_date DATE
+)
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-  v_debt debts; v_fid UUID := auth_family_id(); v_new_paid NUMERIC; v_txn_id UUID;
+  v_debt debts;
+  v_fid UUID := auth_family_id();
+  v_new_paid NUMERIC;
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
-  SELECT * INTO v_debt FROM debts WHERE id=p_debt_id AND family_id=v_fid AND is_active=TRUE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'Deuda no encontrada'; END IF;
-  v_new_paid := LEAST(v_debt.total_amount, v_debt.paid_amount + p_amount);
-  UPDATE debts SET paid_amount=v_new_paid, updated_at=NOW() WHERE id=p_debt_id;
-  IF NOT EXISTS(
-    SELECT 1 FROM transactions WHERE source_id=p_debt_id AND auto_source='debt_payment'
-    AND date=p_date AND amount=p_amount AND family_id=v_fid AND NOT is_void
-  ) THEN
-    INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-    VALUES (v_fid,auth.uid(),'expense',v_debt.category,'Pago: '||v_debt.name,p_amount,p_date,v_debt.linked_account_id,'debt_payment',p_debt_id)
-    RETURNING id INTO v_txn_id;
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
   END IF;
-  RETURN json_build_object('debt_id',p_debt_id,'paid_amount',v_new_paid,'remaining',v_debt.total_amount-v_new_paid,'completed',v_new_paid>=v_debt.total_amount,'transaction_id',v_txn_id);
+
+  SELECT * INTO v_debt
+  FROM debts
+  WHERE id = p_debt_id
+    AND family_id = v_fid
+    AND is_active = TRUE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Deuda no encontrada';
+  END IF;
+
+  -- Actualizar monto pagado
+  v_new_paid := LEAST(v_debt.total_amount, v_debt.paid_amount + p_amount);
+
+  UPDATE debts
+  SET paid_amount = v_new_paid,
+      updated_at = NOW()
+  WHERE id = p_debt_id;
+
+  RETURN json_build_object(
+    'debt_id', p_debt_id,
+    'paid_amount', v_new_paid,
+    'remaining', v_debt.total_amount - v_new_paid,
+    'completed', v_new_paid >= v_debt.total_amount
+  );
 END;
 $$;
 
 CREATE OR REPLACE FUNCTION rpc_update_debt(
-  p_debt_id UUID, p_name TEXT DEFAULT NULL, p_total_amount NUMERIC DEFAULT NULL,
-  p_monthly_payment NUMERIC DEFAULT NULL, p_interest_rate NUMERIC DEFAULT NULL,
-  p_start_date DATE DEFAULT NULL, p_category TEXT DEFAULT NULL,
-  p_notes TEXT DEFAULT NULL, p_is_active BOOLEAN DEFAULT NULL
+  p_debt_id UUID,
+  p_name TEXT DEFAULT NULL,
+  p_total_amount NUMERIC DEFAULT NULL,
+  p_monthly_payment NUMERIC DEFAULT NULL,
+  p_interest_rate NUMERIC DEFAULT NULL,
+  p_start_date DATE DEFAULT NULL,
+  p_category TEXT DEFAULT NULL,
+  p_notes TEXT DEFAULT NULL,
+  p_is_active BOOLEAN DEFAULT NULL,
+  p_linked_account_id UUID DEFAULT NULL   -- ✔ AGREGADO
 )
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_d debts;
 BEGIN
   IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
+
   UPDATE debts SET
-    name=COALESCE(p_name,name), total_amount=COALESCE(p_total_amount,total_amount),
-    monthly_payment=COALESCE(p_monthly_payment,monthly_payment), interest_rate=COALESCE(p_interest_rate,interest_rate),
-    start_date=COALESCE(p_start_date,start_date), category=COALESCE(p_category,category),
-    notes=COALESCE(p_notes,notes), is_active=COALESCE(p_is_active,is_active), updated_at=NOW()
-  WHERE id=p_debt_id AND family_id=auth_family_id() AND (created_by=auth.uid() OR auth_is_admin())
+    name = COALESCE(p_name, name),
+    total_amount = COALESCE(p_total_amount, total_amount),
+    monthly_payment = COALESCE(p_monthly_payment, monthly_payment),
+    interest_rate = COALESCE(p_interest_rate, interest_rate),
+    start_date = COALESCE(p_start_date, start_date),
+    category = COALESCE(p_category, category),
+    notes = COALESCE(p_notes, notes),
+    linked_account_id = COALESCE(p_linked_account_id, linked_account_id),  -- ✔ AGREGADO
+    is_active = COALESCE(p_is_active, is_active),
+    updated_at = NOW()
+  WHERE id = p_debt_id
+    AND family_id = auth_family_id()
+    AND (created_by = auth.uid() OR auth_is_admin())
   RETURNING * INTO v_d;
-  IF NOT FOUND THEN RAISE EXCEPTION 'No encontrado o sin permiso'; END IF;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No encontrado o sin permiso';
+  END IF;
+
   RETURN row_to_json(v_d);
 END;
 $$;
@@ -924,21 +1013,33 @@ END;
 $$;
 
 -- ── Metas ─────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION rpc_deposit_savings_goal(p_goal_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE, p_account_id UUID DEFAULT NULL)
+CREATE OR REPLACE FUNCTION rpc_deposit_savings_goal(p_goal_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE, p_account_id UUID DEFAULT NULL, p_from_account_id UUID DEFAULT NULL)
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_g savings_goals; v_new NUMERIC; v_txn_id UUID;
+DECLARE v_g savings_goals; v_new NUMERIC; v_txn_from UUID; v_txn_to UUID; v_dest UUID;
 BEGIN
   IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
   IF p_amount<=0 THEN RAISE EXCEPTION 'Monto inválido'; END IF;
   SELECT * INTO v_g FROM savings_goals WHERE id=p_goal_id AND family_id=auth_family_id();
   IF NOT FOUND THEN RAISE EXCEPTION 'Meta no encontrada'; END IF;
   IF v_g.status='completed' THEN RAISE EXCEPTION 'Meta ya completada'; END IF;
+  v_dest := COALESCE(p_account_id, v_g.account_id);
+  IF p_from_account_id IS NOT NULL THEN
+    IF p_from_account_id = v_dest THEN RAISE EXCEPTION 'Cuenta origen y destino no pueden ser la misma'; END IF;
+    IF NOT EXISTS(SELECT 1 FROM accounts WHERE id=p_from_account_id AND family_id=auth_family_id() AND is_active=TRUE) THEN
+      RAISE EXCEPTION 'Cuenta de origen no encontrada';
+    END IF;
+  END IF;
   v_new := LEAST(v_g.target_amount, v_g.current_amount + p_amount);
   UPDATE savings_goals SET current_amount=v_new, updated_at=NOW() WHERE id=p_goal_id;
-  INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-  VALUES (auth_family_id(),auth.uid(),'saving','goal','Ahorro: '||v_g.name,p_amount,p_date,COALESCE(p_account_id,v_g.account_id),'savings_deposit',p_goal_id)
-  RETURNING id INTO v_txn_id;
-  RETURN json_build_object('goal_id',p_goal_id,'new_amount',v_new,'completed',v_new>=v_g.target_amount,'transaction_id',v_txn_id);
+  IF p_from_account_id IS NOT NULL THEN
+    INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id)
+    VALUES (auth_family_id(),auth.uid(),'expense','transfer_to_saving','Transferencia a ahorro: '||v_g.name,p_amount,p_date,p_from_account_id,NULL,'savings_deposit',p_goal_id)
+    RETURNING id INTO v_txn_from;
+  END IF;
+  INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id)
+  VALUES (auth_family_id(),auth.uid(),'saving','goal','Ahorro: '||v_g.name,p_amount,p_date,v_dest,NULL,'savings_deposit',p_from_account_id)
+  RETURNING id INTO v_txn_to;
+  RETURN json_build_object('goal_id',p_goal_id,'new_amount',v_new,'completed',v_new>=v_g.target_amount,'transaction_id',v_txn_to,'from_transaction_id',v_txn_from);
 END;
 $$;
 

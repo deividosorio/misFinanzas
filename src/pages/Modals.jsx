@@ -412,7 +412,7 @@ export function AccountModal({ onClose }) {
  * Para AHORROS: solo cuentas de activo
  */
 export function TxModal({ onClose }) {
-    const { t, accounts, addTxn, payCreditCard, closeModal } = useApp()
+    const { t, accounts, addTxn, payCreditCard, transferToSaving, closeModal } = useApp()
 
     const handleClose = onClose || closeModal
 
@@ -445,6 +445,7 @@ export function TxModal({ onClose }) {
             ...(k === 'type' ? {
                 category: CATS_BY_TYPE[v][0],
                 account_id: '', // reset porque la lista de cuentas disponibles cambia
+                from_account_id: '',
             } : {}),
         }))
     }
@@ -472,6 +473,26 @@ export function TxModal({ onClose }) {
         if (!f.description.trim()) { setError('La descripción es requerida'); return }
         if (!f.amount || parseFloat(f.amount) <= 0) { setError('El monto debe ser mayor que cero'); return }
         if (!f.account_id) { setError('Selecciona la cuenta o tarjeta'); return }
+
+        if (f.type === 'saving') {
+            if (!f.from_account_id) { setError('Selecciona la cuenta de origen'); return }
+            if (f.from_account_id === f.account_id) {
+                setError('La cuenta origen y destino no pueden ser la misma'); return
+            }
+            setSaving(true)
+            const { error } = await transferToSaving({
+                from_account_id: f.from_account_id,
+                to_account_id: f.account_id,
+                category: f.category,
+                description: f.description.trim(),
+                amount: f.amount,
+                date: f.date,
+                notes: f.notes.trim() || null,
+            })
+            if (error) { setError(error.message); setSaving(false); return }
+            handleClose()
+            return
+        }
 
         setSaving(true)
         const { error } = await addTxn({
@@ -521,7 +542,7 @@ export function TxModal({ onClose }) {
                             {[
                                 { id: 'income', label: t.income, color: 'var(--green)' },
                                 { id: 'expense', label: t.expense, color: 'var(--red)' },
-                                { id: 'saving', label: t.saving, color: 'var(--purple)' },
+                                { id: 'saving', label: t.savingTransfer, color: 'var(--purple)' },
                                 { id: 'payment', label: t.payment, color: 'var(--blue)' },
                             ].map(tp => (
                                 <button key={tp.id} onClick={() => set('type', tp.id)} style={{
@@ -555,7 +576,7 @@ export function TxModal({ onClose }) {
                     </Field>
 
                     {/* Cuenta origen */}
-                    <Field label="Cuenta de donde sale el dinero">
+                    <Field label={t.accountUsed}>
                         <Select
                             value={f.from_account_id}
                             onChange={e => set('from_account_id', e.target.value)}
@@ -630,7 +651,7 @@ export function TxModal({ onClose }) {
                         {[
                             { id: 'income', label: t.income, color: 'var(--green)' },
                             { id: 'expense', label: t.expense, color: 'var(--red)' },
-                            { id: 'saving', label: t.saving, color: 'var(--purple)' },
+                            { id: 'saving', label: t.savingTransfer, color: 'var(--purple)' },
                             { id: 'payment', label: t.payment, color: 'var(--blue)' },
                         ].map(tp => (
                             <button key={tp.id} onClick={() => set('type', tp.id)} style={{
@@ -660,10 +681,10 @@ export function TxModal({ onClose }) {
                 {/* ── SELECTOR DE CUENTA UNIFICADO ── */}
                 <Field label={
                     f.type === 'expense'
-                        ? 'Cuenta o tarjeta utilizada'
+                        ? t.expenseAccount
                         : f.type === 'income'
-                            ? 'Cuenta donde entra el dinero'
-                            : 'Cuenta de ahorro'
+                            ? t.incomeAccount
+                            : t.savingDestinationAccount
                 }>
                     <Select value={f.account_id} onChange={e => set('account_id', e.target.value)}>
                         <option value="">— Seleccionar cuenta —</option>
@@ -708,12 +729,29 @@ export function TxModal({ onClose }) {
                             )}
                             {!selectedIsCredit && (
                                 <span style={{ color: 'var(--muted)' }}>
-                                    · el gasto se descontará del saldo de la cuenta
+                                    · {f.type === 'saving' ? 'El dinero entrará a esta cuenta de ahorro' : 'El gasto se descontará del saldo de la cuenta'}
                                 </span>
                             )}
                         </div>
                     )}
                 </Field>
+
+                {f.type === 'saving' && (
+                    <Field label={t.sourceAccount}>
+                        <Select value={f.from_account_id} onChange={e => set('from_account_id', e.target.value)}>
+                            <option value="">{t.selectSourceAccount}</option>
+                            {assetAccounts.filter(a => a.id !== f.account_id).map(a => (
+                                <option key={a.id} value={a.id}>
+                                    {ACCOUNT_SUBTYPES[a.subtype]?.icon} {a.name}
+                                    {a.owner_name ? ` (${a.owner_name})` : ''}
+                                </option>
+                            ))}
+                        </Select>
+                        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+                            {t.chooseSavingSource}
+                        </div>
+                    </Field>
+                )}
 
                 {/* // Lógica especial para pagos de tarjeta de crédito:
                     // Si la cuenta seleccionada es de crédito, mostrar un botón adicional

@@ -163,7 +163,7 @@ export function EditTxModal({ txn, onClose }) {
                 </Field>
 
                 {/* Cuenta unificada */}
-                <Field label={f.type === 'expense' ? 'Cuenta o tarjeta utilizada' : f.type === 'income' ? 'Cuenta donde entró el dinero' : 'Cuenta de ahorro'}>
+                <Field label={f.type === 'expense' ? t.accountUsed : f.type === 'income' ? t.from : t.savingAccount}>
                     <Select value={f.account_id} onChange={e => set('account_id', e.target.value)}>
                         <option value="">— Sin cuenta —</option>
                         {assetAccounts.length > 0 && (
@@ -271,14 +271,15 @@ export function EditDebtModal({ debt, onClose }) {
         setSaving(true)
         const { error } = await editDebt(debt.id, {
             name: f.name.trim(),
-            category: f.category,
             total_amount: parseFloat(f.total_amount),
             monthly_payment: f.monthly_payment ? parseFloat(f.monthly_payment) : null,
             interest_rate: f.interest_rate ? parseFloat(f.interest_rate) : 0,
             start_date: f.start_date || null,
-            linked_account_id: f.linked_account_id || null,
+            category: f.category,
             notes: f.notes.trim() || null,
+            linked_account_id: f.linked_account_id || null,
         })
+        console.log('[MiFinanza] editDebt result:', { error })
         if (error) { setError(error.message); setSaving(false); return }
         onClose()
     }
