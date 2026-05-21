@@ -312,16 +312,29 @@ CREATE TABLE IF NOT EXISTS kids_goals (
   family_id       UUID        NOT NULL REFERENCES families(id) ON DELETE CASCADE,
   kid_profile     UUID        NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   name            TEXT        NOT NULL,
+  description     TEXT,
   target_amount   NUMERIC(14,2) NOT NULL CHECK (target_amount > 0),
   current_amount  NUMERIC(14,2) NOT NULL DEFAULT 0,
   status          goal_status NOT NULL DEFAULT 'active',
   approval_status goal_approval_status NOT NULL DEFAULT 'approved',
+  approved_by     UUID        REFERENCES profiles(id),
   emoji           TEXT        DEFAULT '⭐',
   color           TEXT        DEFAULT '#fbbf24',
   reward_text     TEXT,
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   updated_at      TIMESTAMPTZ DEFAULT NOW()
 );
+$$;
+
+create trigger trg_kids_goal_completed BEFORE
+update on kids_goals for EACH row
+execute FUNCTION handle_goal_completed ();
+
+$$;
+create trigger trg_updated_at_kids_goals BEFORE
+update on kids_goals for EACH row
+execute FUNCTION set_updated_at ();
+%%;
 
 CREATE TABLE IF NOT EXISTS kids_deposits (
   id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),

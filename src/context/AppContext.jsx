@@ -38,6 +38,7 @@ export function AppProvider({ children }) {
   const [txns, setTxns] = useState([])
   const [goals, setGoals] = useState([])
   const [kidsGoals, setKidsGoals] = useState([])
+  const [kidsDeposits, setKidsDeposits] = useState([])
   const [members, setMembers] = useState([])
   const [summary, setSummary] = useState(null)
   const [netWorth, setNetWorth] = useState(null)
@@ -105,6 +106,7 @@ export function AppProvider({ children }) {
         supabase.from('recurring_with_details').select('*').eq('family_id', fid).eq('is_active', true),
         supabase.from('savings_goals').select('*').eq('family_id', fid),
         supabase.from('kids_goals').select('*').eq('family_id', fid),
+        supabase.from('kids_deposits').select('*').eq('family_id', fid),
         supabase.from('profiles').select('*').eq('family_id', fid),
       ])
 
@@ -114,7 +116,7 @@ export function AppProvider({ children }) {
           ? (r.value.data ?? [])
           : []
 
-      const [accs, txnsD, debtsD, recD, goalsD, kgD, membsD] = results.map(safe)
+      const [accs, txnsD, debtsD, recD, goalsD, kgD, kdD, membsD] = results.map(safe)
 
       if (accs) setAccounts(accs)
       if (txnsD) setTxns(txnsD)
@@ -122,6 +124,7 @@ export function AppProvider({ children }) {
       if (recD) setRecurring(recD)
       if (goalsD) setGoals(goalsD)
       if (kgD) setKidsGoals(kgD)
+      if (kdD) setKidsDeposits(kdD)
       if (membsD) setMembers(membsD)
 
       const { data: sumData, error: sumErr } = await supabase.rpc('rpc_dashboard_summary', {
@@ -179,7 +182,7 @@ export function AppProvider({ children }) {
     await auth.logout()
     // Clear app data
     setMembers([]); setAccounts([]); setTxns([])
-    setDebts([]); setRecurring([]); setGoals([]); setKidsGoals([])
+    setDebts([]); setRecurring([]); setGoals([]); setKidsGoals([]); setKidsDeposits([])
   }
 
   const createFamily = async (name, currency = 'CAD') => {
@@ -492,7 +495,8 @@ export function AppProvider({ children }) {
     addKidGoal, depositKidGoal, updateKidGoalApproval,
     setMemberStatus, setMemberRole,
     getAccount, getMember, reload: loadData,
-    setDebts, setRecurring, setTxns, setGoals, setKidsGoals, setMembers,
+    kidsDeposits,
+    setDebts, setRecurring, setTxns, setGoals, setKidsGoals, setKidsDeposits, setMembers,
   }
 
   return <AppCtx.Provider value={ctx}>{children}</AppCtx.Provider>

@@ -177,6 +177,14 @@ export const fmtSign = (n) => {
 export const pct  = (a, b) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0)
 export const toDay  = () => new Date().toISOString().slice(0, 10)
 export const thisMo = () => new Date().toISOString().slice(0, 7)
+export const fmtDateTime = (iso) => {
+  if (!iso) return ''
+  const date = new Date(iso)
+  return new Intl.DateTimeFormat('es-CA', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  }).format(date)
+}
 export const moLabel = (m) => {
   if (!m) return ''
   const [y, mo] = m.split('-')

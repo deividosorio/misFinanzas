@@ -144,6 +144,7 @@ function AppInner() {
           <Kids />
         </main>
         {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+        {modal === 'kidGoal' && <KidGoalModal />}
       </div>
     )
   }

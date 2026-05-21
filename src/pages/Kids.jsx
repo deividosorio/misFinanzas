@@ -29,7 +29,7 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
 import { Card, Btn, SectionHeader, ProgressBar, Empty } from '../components/ui/index'
-import { BADGE_META } from '../lib/constants'
+import { BADGE_META, fmtDateTime } from '../lib/constants'
 import { fmt, pct } from '../lib/constants'
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -38,27 +38,35 @@ import { fmt, pct } from '../lib/constants'
 - @param {boolean} parentView - true: vista de padres, false: vista del niño
   */
 export default function Kids({ parentView = false }) {
-    const { profile, kidsGoals, kids, depositKidGoal, openModal, updateKidGoalApproval } = useApp()
+    const { profile, kidsGoals, kidsDeposits, kids, depositKidGoal, openModal, updateKidGoalApproval } = useApp()
 
     // Vista del niño autenticado
     if (!parentView) {
         const myGoals = kidsGoals.filter(g => g.kid_profile === profile?.id)
+        const myGoalIds = myGoals.map(g => g.id)
+        const myDeposits = kidsDeposits
+            .filter(d => myGoalIds.includes(d.goal_id))
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         const myBadges = []
-        return <KidsChildView profile={profile} goals={myGoals} badges={myBadges} openModal={openModal} />
+        return <KidsChildView profile={profile} goals={myGoals} badges={myBadges} deposits={myDeposits} openModal={openModal} />
     }
 
     // Vista de padres
-    return <KidsParentView kids={kids} kidsGoals={kidsGoals} depositKidGoal={depositKidGoal} openModal={openModal} updateKidGoalApproval={updateKidGoalApproval} />
+    return <KidsParentView kids={kids} kidsGoals={kidsGoals} kidsDeposits={kidsDeposits} depositKidGoal={depositKidGoal} openModal={openModal} updateKidGoalApproval={updateKidGoalApproval} />
 }
 
 // ── Vista de padres ────────────────────────────────────────────────────────────
-function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal, updateKidGoalApproval }) {
+function KidsParentView({ kids, kidsGoals, kidsDeposits, depositKidGoal, openModal, updateKidGoalApproval }) {
     // El primer niño está seleccionado por defecto
     const [selectedKidId, setSelectedKidId] = useState(kids[0]?.id || null)
 
     const selectedKid = kids.find(k => k.id === selectedKidId)
     const selectedGoals = kidsGoals.filter(g => g.kid_profile === selectedKidId)
       .map(g => ({ ...g, kid_name: selectedKid?.display_name || 'Niño/a' }))
+    const selectedGoalIds = selectedGoals.map(g => g.id)
+    const depositHistory = kidsDeposits
+      .filter(d => selectedGoalIds.includes(d.goal_id))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     const kidBadges = []
 
     return (
@@ -149,6 +157,28 @@ function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal, updateKidG
                     ))}
                 </div>
             )}
+
+            <Card>
+                <div className="h3" style={{ marginBottom: 10 }}>Historial de depósitos</div>
+                {depositHistory.length === 0 ? (
+                    <p style={{ color: 'var(--muted)', fontSize: 13 }}>Aún no hay depósitos para este niño.</p>
+                ) : (
+                    <div style={{ display: 'grid', gap: 10 }}>
+                        {depositHistory.map(dep => {
+                            const goal = selectedGoals.find(g => g.id === dep.goal_id)
+                            return (
+                                <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 12px', borderRadius: 12, background: 'var(--bg)' }}>
+                                    <div>
+                                        <div style={{ fontSize: 13, fontWeight: 700 }}>{goal?.name || 'Meta'}</div>
+                                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDateTime(dep.created_at)}</div>
+                                    </div>
+                                    <div style={{ minWidth: 80, textAlign: 'right', fontWeight: 700 }}>${dep.amount}</div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+            </Card>
         </div>
 
 
@@ -263,7 +293,7 @@ function KidGoalCard({ goal: g, onDeposit, onApprove }) {
 - - Cerdito 🐷 que avanza en la barra de progreso
 - - Sin sidebar, sin header de adulto
     */
-function KidsChildView({ profile, goals, badges, openModal }) {
+function KidsChildView({ profile, goals, badges, deposits, openModal }) {
     return (
         <div style={{
             minHeight: '100vh',
@@ -490,8 +520,29 @@ function KidsChildView({ profile, goals, badges, openModal }) {
                         )
                     })
 
-
                 )}
+
+                <Card style={{ marginTop: 16, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(148,163,184,0.16)' }}>
+                    <div className="h3" style={{ marginBottom: 10 }}>Movimientos recientes</div>
+                    {deposits.length === 0 ? (
+                        <p style={{ color: '#94a3b8', fontSize: 13 }}>Aún no hay depósitos registrados. Pide a tus papás que aprueben tus metas y deposita cuando estés listo.</p>
+                    ) : (
+                        <div style={{ display: 'grid', gap: 10 }}>
+                            {deposits.map(dep => {
+                                const goal = goals.find(g => g.id === dep.goal_id)
+                                return (
+                                    <div key={dep.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.06)' }}>
+                                        <div>
+                                            <div style={{ fontSize: 13, fontWeight: 700 }}>{goal?.name || 'Meta'}</div>
+                                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtDateTime(dep.created_at)}</div>
+                                        </div>
+                                        <div style={{ minWidth: 80, textAlign: 'right', fontWeight: 700, color: '#fff' }}>${dep.amount}</div>
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    )}
+                </Card>
 
                 {/* Pie de página */}
 

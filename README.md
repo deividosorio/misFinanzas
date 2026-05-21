@@ -42,6 +42,37 @@ mifinanza/
 ├── index.html
 ├── vite.config.js
 └── package.json
+
+Capas y separación
+
+supabase/schema mifinanza.sql
+Define modelo de datos, enums, RLS y lógica de negocio en la base de datos.
+El uso de rpc_* para mutaciones importantes es una buena práctica: encapsula la lógica en el backend y mantiene el frontend más simple.
+
+AppContext.jsx
+Funciona como capa de datos / estado global.
+Centraliza la carga de datos (loadData), las mutaciones y los derivados (assetAccounts, creditAccounts, filteredTxns).
+
+Kids.jsx
+Separa claramente dos vistas: KidsParentView y KidsChildView.
+Cada vista tiene su responsabilidad:
+KidsParentView: selección de niño, listado de metas, aprobación/deposito.
+KidsChildView: experiencia gamificada para hijos.
+
+Modals.jsx
+El modal de creación de meta infantil (KidGoalModal) está bien aislado como componente de formulario.
+Mantiene la lógica de validación local y delega la persistencia a addKidGoal.
+
+App.jsx
+Controla el enrutamiento interno y el render de modales globales.
+Mantiene bien la distinción entre layout adulto y layout kid.
+
+Qué está bien identificado
+lib/constants.js aporta valores compartidos.
+components/ui/ contiene sólo componentes de interfaz reutilizables.
+pages/ contiene páginas y casos de uso específicos.
+context/ se usa para estado, datos y acciones globales.
+
 ```
 
 ## Compartir con tu esposa
