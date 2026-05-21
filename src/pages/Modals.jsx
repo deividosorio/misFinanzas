@@ -1407,14 +1407,14 @@ export function GoalModal({ onClose }) {
 // KidGoalModal — Nueva meta de ahorro (niños)
 // ═════════════════════════════════════════════════════════════════════════════
 export function KidGoalModal({ onClose }) {
-    const { t, kids, addKidGoal, closeModal } = useApp()
+    const { t, kids, profile, addKidGoal, closeModal } = useApp()
     const handleClose = onClose || closeModal
 
     const EMOJIS = ['⭐', '🎮', '🚲', '🎯', '🏀', '🎸', '📚', '🦋', '🌈', '🎪', '🚀', '💎', '🐉', '🎠']
     const COLORS = ['#fbbf24', '#818cf8', '#2dd4a0', '#ff6b6b', '#38bdf8', '#f472b6', '#a78bfa', '#fb923c']
 
     const [f, setF] = useState({
-        kid_profile: kids[0]?.id || '',
+        kid_profile: profile?.is_kid ? profile.id : kids[0]?.id || '',
         name: '',
         target_amount: '',
         emoji: '⭐',
@@ -1435,7 +1435,6 @@ export function KidGoalModal({ onClose }) {
         const { error } = await addKidGoal({
             kid_profile: f.kid_profile,
             name: f.name.trim(),
-            description: `Meta de ${kid.display_name}`,
             target_amount: parseFloat(f.target_amount),
             emoji: f.emoji,
             color: f.color,
@@ -1450,15 +1449,27 @@ export function KidGoalModal({ onClose }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 
                 <Field label="Niño/a *">
-                    <Select value={f.kid_profile} onChange={e => setF(p => ({ ...p, kid_profile: e.target.value }))}>
-                        <option value="">— Seleccionar —</option>
-                        {kids.map(k => (
-                            <option key={k.id} value={k.id}>
-                                {k.avatar_emoji} {k.display_name}
-                            </option>
-                        ))}
-                    </Select>
+                    {profile?.is_kid ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: 18 }}>{profile.avatar_emoji}</span>
+                            <span>{profile.display_name}</span>
+                        </div>
+                    ) : (
+                        <Select value={f.kid_profile} onChange={e => setF(p => ({ ...p, kid_profile: e.target.value }))}>
+                            <option value="">— Seleccionar —</option>
+                            {kids.map(k => (
+                                <option key={k.id} value={k.id}>
+                                    {k.avatar_emoji} {k.display_name}
+                                </option>
+                            ))}
+                        </Select>
+                    )}
                 </Field>
+                {profile?.is_kid && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                        Tu meta será revisada por tus papás antes de que puedas recibir depósitos.
+                    </div>
+                )}
 
                 <Field label="Emoji de la meta">
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>

@@ -431,12 +431,28 @@ export function AppProvider({ children }) {
     if (!error) await loadData(); return { error }
   }
   const addKidGoal = async (goal) => {
-    const { data, error } = await supabase.from('kids_goals').insert({ family_id: family.id, ...goal, target_amount: parseFloat(goal.target_amount) }).select().single()
+    const { data, error } = await supabase.from('kids_goals').insert({
+      family_id: family.id,
+      approval_status: profile?.is_kid ? 'pending' : 'approved',
+      kid_profile: goal.kid_profile,
+      name: goal.name,
+      target_amount: parseFloat(goal.target_amount),
+      emoji: goal.emoji,
+      color: goal.color,
+      reward_text: goal.reward_text || null,
+    }).select().single()
     if (!error) await loadData(); return { data, error }
   }
   const depositKidGoal = async (id, amount) => {
     const { error } = await supabase.rpc('rpc_kids_deposit', { p_goal_id: id, p_amount: amount })
     if (!error) await loadData(); return { error }
+  }
+  const updateKidGoalApproval = async (goalId, approvalStatus) => {
+    const { data, error } = await supabase.rpc('rpc_update_kid_goal_approval', {
+      p_goal_id: goalId,
+      p_approval_status: approvalStatus,
+    })
+    if (!error) await loadData(); return { data, error }
   }
 
   // ── Miembros ───────────────────────────────────────────────────────────
@@ -473,7 +489,7 @@ export function AppProvider({ children }) {
     addRecurring, editRecurring, deleteRecurring, markRecPaid,
     addGoal, editGoal, deleteGoal, depositGoal,
     transferToSaving,
-    addKidGoal, depositKidGoal,
+    addKidGoal, depositKidGoal, updateKidGoalApproval,
     setMemberStatus, setMemberRole,
     getAccount, getMember, reload: loadData,
     setDebts, setRecurring, setTxns, setGoals, setKidsGoals, setMembers,

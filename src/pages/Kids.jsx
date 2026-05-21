@@ -38,26 +38,27 @@ import { fmt, pct } from '../lib/constants'
 - @param {boolean} parentView - true: vista de padres, false: vista del niño
   */
 export default function Kids({ parentView = false }) {
-    const { profile, kidsGoals, kids, depositKidGoal, openModal } = useApp()
+    const { profile, kidsGoals, kids, depositKidGoal, openModal, updateKidGoalApproval } = useApp()
 
     // Vista del niño autenticado
     if (!parentView) {
         const myGoals = kidsGoals.filter(g => g.kid_profile === profile?.id)
         const myBadges = []
-        return <KidsChildView profile={profile} goals={myGoals} badges={myBadges} />
+        return <KidsChildView profile={profile} goals={myGoals} badges={myBadges} openModal={openModal} />
     }
 
     // Vista de padres
-    return <KidsParentView kids={kids} kidsGoals={kidsGoals} depositKidGoal={depositKidGoal} openModal={openModal} />
+    return <KidsParentView kids={kids} kidsGoals={kidsGoals} depositKidGoal={depositKidGoal} openModal={openModal} updateKidGoalApproval={updateKidGoalApproval} />
 }
 
 // ── Vista de padres ────────────────────────────────────────────────────────────
-function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal }) {
+function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal, updateKidGoalApproval }) {
     // El primer niño está seleccionado por defecto
     const [selectedKidId, setSelectedKidId] = useState(kids[0]?.id || null)
 
     const selectedKid = kids.find(k => k.id === selectedKidId)
     const selectedGoals = kidsGoals.filter(g => g.kid_profile === selectedKidId)
+      .map(g => ({ ...g, kid_name: selectedKid?.display_name || 'Niño/a' }))
     const kidBadges = []
 
     return (
@@ -144,7 +145,7 @@ function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal }) {
             ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px,1fr))', gap: 12 }}>
                     {selectedGoals.map(g => (
-                        <KidGoalCard key={g.id} goal={g} onDeposit={depositKidGoal} />
+                        <KidGoalCard key={g.id} goal={g} onDeposit={depositKidGoal} onApprove={updateKidGoalApproval} />
                     ))}
                 </div>
             )}
@@ -155,9 +156,13 @@ function KidsParentView({ kids, kidsGoals, depositKidGoal, openModal }) {
 }
 
 // ── Tarjeta de meta del niño (vista padres) ────────────────────────────────────
-function KidGoalCard({ goal: g, onDeposit }) {
+function KidGoalCard({ goal: g, onDeposit, onApprove }) {
     const [val, setVal] = useState('')
     const p = pct(g.current_amount, g.target_amount)
+    const isPending = g.approval_status === 'pending'
+    const isRejected = g.approval_status === 'rejected'
+    const isApproved = g.approval_status === 'approved' || g.approval_status == null
+    const canDeposit = g.status !== 'completed' && isApproved
 
     return (
         <Card accent={g.color + '33'}>
@@ -168,16 +173,29 @@ function KidGoalCard({ goal: g, onDeposit }) {
                     <div style={{ fontWeight: 700, fontSize: 14, color: g.color }}>{g.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>{g.kid_name}</div>
                 </div>
-                {g.status === 'completed' && (
-                    <span style={{
-                        marginLeft: 'auto', fontSize: 11, color: 'var(--green)',
-                        background: 'var(--green)14', borderRadius: 20, padding: '2px 8px',
-                    }}>
-                        ✓ ¡Completado!
-                    </span>
-                )}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {isPending && (
+                        <span style={{ fontSize: 11, color: '#d97706', background: '#fde68a', borderRadius: 20, padding: '2px 8px' }}>
+                            ⏳ Pendiente aprobación
+                        </span>
+                    )}
+                    {isApproved && g.status === 'completed' && (
+                        <span style={{ fontSize: 11, color: 'var(--green)', background: 'var(--green)14', borderRadius: 20, padding: '2px 8px' }}>
+                            ✓ Completado
+                        </span>
+                    )}
+                    {isApproved && g.status !== 'completed' && (
+                        <span style={{ fontSize: 11, color: '#2563eb', background: '#bfdbfe', borderRadius: 20, padding: '2px 8px' }}>
+                            Aprobada
+                        </span>
+                    )}
+                    {isRejected && (
+                        <span style={{ fontSize: 11, color: '#b91c1c', background: '#fecaca', borderRadius: 20, padding: '2px 8px' }}>
+                            Rechazada
+                        </span>
+                    )}
+                </div>
             </div>
-
 
             {/* Progreso */}
             <ProgressBar value={g.current_amount} max={g.target_amount} height={8} color={g.color} />
@@ -186,8 +204,11 @@ function KidGoalCard({ goal: g, onDeposit }) {
                 <span style={{ color: 'var(--muted)' }}>{p}% de {fmt(g.target_amount)}</span>
             </div>
 
-            {/* Depósito (solo si no está completada) */}
-            {g.status !== 'completed' && (
+            <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--muted)' }}>
+                Estado: {isPending ? 'Pendiente de aprobación' : isRejected ? 'Rechazada por los papás' : 'Aprobada'}
+            </div>
+
+            {canDeposit ? (
                 <div style={{ display: 'flex', gap: 6 }}>
                     <input
                         type="number"
@@ -207,10 +228,28 @@ function KidGoalCard({ goal: g, onDeposit }) {
                         💰
                     </Btn>
                 </div>
+            ) : (
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    {isPending
+                        ? 'No puedes depositar hasta que los papás aprueben esta meta.'
+                        : isRejected
+                            ? 'Meta rechazada. Ajusta los detalles y vuelve a intentarlo.'
+                            : 'Esta meta ya está completada.'
+                    }
+                </div>
+            )}
+
+            {isPending && onApprove && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <Btn size="sm" onClick={() => onApprove(g.id, 'approved')}>
+                        Aprobar
+                    </Btn>
+                    <Btn size="sm" variant="danger" onClick={() => onApprove(g.id, 'rejected')}>
+                        Rechazar
+                    </Btn>
+                </div>
             )}
         </Card>
-
-
     )
 }
 
@@ -224,7 +263,7 @@ function KidGoalCard({ goal: g, onDeposit }) {
 - - Cerdito 🐷 que avanza en la barra de progreso
 - - Sin sidebar, sin header de adulto
     */
-function KidsChildView({ profile, goals, badges }) {
+function KidsChildView({ profile, goals, badges, openModal }) {
     return (
         <div style={{
             minHeight: '100vh',
@@ -258,6 +297,27 @@ function KidsChildView({ profile, goals, badges }) {
             ))}
 
             <div style={{ maxWidth: 460, margin: '0 auto', position: 'relative', zIndex: 1 }}>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <div>
+                        <div style={{
+                            fontFamily: 'var(--font-display)',
+                            fontWeight: 800,
+                            fontSize: 13,
+                            color: '#a5b4fc',
+                            textTransform: 'uppercase',
+                            letterSpacing: 1,
+                        }}>
+                            Tu perfil Kids
+                        </div>
+                        <div style={{ fontSize: 13, color: '#94a3b8' }}>
+                            Crea metas, sigue tu progreso y mira cuándo tus papás las aprueban.
+                        </div>
+                    </div>
+                    <Btn size="sm" variant="primary" onClick={() => openModal('kidGoal')}>
+                        + Nueva meta
+                    </Btn>
+                </div>
 
                 {/* Encabezado del niño */}
 
@@ -328,7 +388,12 @@ function KidsChildView({ profile, goals, badges }) {
                     <div style={{ textAlign: 'center', padding: 40, color: '#6b7494' }}>
                         <div style={{ fontSize: 48, marginBottom: 12 }}>🌱</div>
                         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 16 }}>
-                            ¡Pide a tus papás crear tu primera meta!
+                            ¡Crea tu primera meta y pide a tus papás que la aprueben!
+                        </div>
+                        <div style={{ marginTop: 14 }}>
+                            <Btn size="sm" variant="primary" onClick={() => openModal('kidGoal')}>
+                                + Crear meta
+                            </Btn>
                         </div>
                     </div>
                 ) : (
@@ -395,18 +460,30 @@ function KidsChildView({ profile, goals, badges }) {
                                 </div>
 
                                 {/* Números */}
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                                    <span className="mono" style={{ color: g.color, fontSize: 16 }}>
-                                        {fmt(g.current_amount)}
-                                    </span>
-                                    <span style={{ color: '#6b7494' }}>de {fmt(g.target_amount)}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, gap: 8 }}> 
+                                    <div>
+                                        <div style={{ fontWeight: 700, color: g.color }}>{fmt(g.current_amount)}</div>
+                                        <div style={{ fontSize: 11, color: '#6b7494' }}>ahorrado</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ fontWeight: 700, color: g.color }}>{fmt(g.target_amount)}</div>
+                                        <div style={{ fontSize: 11, color: '#6b7494' }}>meta total</div>
+                                    </div>
                                 </div>
 
-                                {/* Mensaje motivacional */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7494', marginTop: 10 }}>
+                                    <span>Progreso: {pct(g.current_amount, g.target_amount)}%</span>
+                                    <span>Estado: {g.approval_status === 'pending' ? 'Pendiente' : g.approval_status === 'rejected' ? 'Rechazada' : g.status === 'completed' ? 'Completada' : 'Aprobada'}</span>
+                                </div>
+
                                 <div style={{ fontSize: 11, color: '#6b7494', textAlign: 'center', marginTop: 10 }}>
                                     {g.status === 'completed'
                                         ? '🎉 ¡Meta alcanzada! Pídele a mamá o papá tu premio'
-                                        : `Faltan ${fmt(g.target_amount - g.current_amount)} para lograrlo 💪`
+                                        : g.approval_status === 'pending'
+                                            ? 'Esta meta está pendiente de aprobación por tus papás.'
+                                            : g.approval_status === 'rejected'
+                                                ? 'Tu meta fue rechazada. Ajusta el objetivo o mensaje y vuelve a intentarlo.'
+                                                : `Faltan ${fmt(g.target_amount - g.current_amount)} para lograrlo 💪`
                                     }
                                 </div>
                             </div>

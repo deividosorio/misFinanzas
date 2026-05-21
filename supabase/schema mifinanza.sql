@@ -92,6 +92,9 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE goal_status AS ENUM ('active','completed','paused','cancelled');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+DO $$ BEGIN CREATE TYPE goal_approval_status AS ENUM ('pending','approved','rejected');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 DO $$ BEGIN CREATE TYPE freq_type AS ENUM ('weekly','biweekly','monthly','yearly');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
@@ -312,6 +315,7 @@ CREATE TABLE IF NOT EXISTS kids_goals (
   target_amount   NUMERIC(14,2) NOT NULL CHECK (target_amount > 0),
   current_amount  NUMERIC(14,2) NOT NULL DEFAULT 0,
   status          goal_status NOT NULL DEFAULT 'active',
+  approval_status goal_approval_status NOT NULL DEFAULT 'approved',
   emoji           TEXT        DEFAULT '⭐',
   color           TEXT        DEFAULT '#fbbf24',
   reward_text     TEXT,
@@ -1101,6 +1105,19 @@ BEGIN
   INSERT INTO kids_deposits(goal_id,family_id,amount,deposited_by,note) VALUES(p_goal_id,auth_family_id(),p_amount,auth.uid(),p_note);
   PERFORM rpc_check_kid_badges(v_g.kid_profile);
   RETURN json_build_object('goal_id',p_goal_id,'new_amount',v_new,'completed',v_new>=v_g.target_amount);
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION rpc_update_kid_goal_approval(p_goal_id UUID, p_approval_status goal_approval_status)
+RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_g kids_goals;
+BEGIN
+  IF auth_is_kid() THEN RAISE EXCEPTION 'Solo los padres pueden aprobar metas'; END IF;
+  UPDATE kids_goals SET approval_status=p_approval_status, updated_at=NOW()
+    WHERE id=p_goal_id AND family_id=auth_family_id()
+    RETURNING * INTO v_g;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Meta no encontrada'; END IF;
+  RETURN row_to_json(v_g);
 END;
 $$;
 
