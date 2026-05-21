@@ -668,21 +668,46 @@ $$;
 CREATE OR REPLACE FUNCTION rpc_update_account(
   p_account_id   UUID,
   p_name         TEXT    DEFAULT NULL,
+  p_subtype      account_subtype DEFAULT NULL,
+  p_owner_profile UUID   DEFAULT NULL,
   p_color        TEXT    DEFAULT NULL,
   p_institution  TEXT    DEFAULT NULL,
+  p_last_four    TEXT    DEFAULT NULL,
   p_credit_limit NUMERIC DEFAULT NULL,
+  p_opening_balance NUMERIC DEFAULT NULL,
   p_notes        TEXT    DEFAULT NULL,
   p_is_active    BOOLEAN DEFAULT NULL
 )
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_acc accounts;
+DECLARE v_acc accounts; v_type account_subtype;
 BEGIN
   IF NOT auth_is_admin() THEN RAISE EXCEPTION 'Solo el admin puede editar cuentas'; END IF;
+  v_type := COALESCE(p_subtype, (SELECT subtype FROM accounts WHERE id=p_account_id AND family_id=auth_family_id()))::account_subtype;
+  IF v_type IS NULL THEN RAISE EXCEPTION 'Cuenta no encontrada'; END IF;
+
+  IF v_type IN ('credit_card','credit_line') AND (p_credit_limit IS NULL OR p_credit_limit <= 0) AND p_credit_limit IS NOT NULL THEN
+    -- Si se está actualizando el límite, debe ser válido.
+    IF p_credit_limit <= 0 THEN RAISE EXCEPTION 'El límite de crédito debe ser mayor que cero'; END IF;
+  END IF;
+
+  IF v_type IN ('credit_card','credit_line') AND p_opening_balance IS NOT NULL AND p_opening_balance != 0 THEN
+    RAISE EXCEPTION 'Las cuentas de crédito no tienen saldo inicial';
+  END IF;
+
   UPDATE accounts SET
-    name=COALESCE(p_name,name), color=COALESCE(p_color,color),
+    name=COALESCE(p_name,name),
+    subtype=COALESCE(p_subtype,subtype),
+    owner_profile=COALESCE(p_owner_profile,owner_profile),
+    color=COALESCE(p_color,color),
     institution=COALESCE(p_institution,institution),
-    credit_limit=COALESCE(p_credit_limit,credit_limit),
-    notes=COALESCE(p_notes,notes), is_active=COALESCE(p_is_active,is_active),
+    credit_limit=CASE WHEN COALESCE(p_subtype,subtype)::account_subtype IN ('credit_card','credit_line')
+      THEN COALESCE(p_credit_limit,credit_limit) ELSE NULL END,
+    last_four=CASE WHEN COALESCE(p_subtype,subtype)::account_subtype IN ('credit_card','credit_line')
+      THEN COALESCE(p_last_four,last_four) ELSE NULL END,
+    opening_balance=CASE WHEN COALESCE(p_subtype,subtype)::account_subtype IN ('credit_card','credit_line')
+      THEN 0 ELSE COALESCE(p_opening_balance,opening_balance) END,
+    notes=COALESCE(p_notes,notes),
+    is_active=COALESCE(p_is_active,is_active),
     updated_at=NOW()
   WHERE id=p_account_id AND family_id=auth_family_id()
   RETURNING * INTO v_acc;
@@ -1277,55 +1302,133 @@ $$;
 -- ─────────────────────────────────────────────────────────────
 
 -- Vista unificada de cuentas con saldo calculado
--- Para activos: saldo = apertura + ingresos - gastos - ahorros
+-- Para activos: saldo = apertura + ingresos - gastos + ahorros
 -- Para crédito: disponible = límite - gastos_acumulados_mes, deuda = gastos_acumulados
 CREATE OR REPLACE VIEW account_balances AS
-SELECT
+select
   a.id,
   a.family_id,
   a.name,
+  a.is_active,
   a.subtype,
-  -- is_credit: indica si es cuenta de crédito (pasivo)
-  a.subtype IN ('credit_card','credit_line') AS is_credit,
+  a.subtype = any (
+    array[
+      'credit_card'::account_subtype,
+      'credit_line'::account_subtype
+    ]
+  ) as is_credit,
   a.color,
   a.institution,
   a.last_four,
   a.credit_limit,
   a.opening_balance,
-  p.display_name AS owner_name,
-  -- Saldo para cuentas de activo (checking, savings, investment, cash)
-  CASE WHEN a.subtype NOT IN ('credit_card','credit_line') THEN
-    a.opening_balance
-    + COALESCE(SUM(t.amount) FILTER(WHERE t.type='income'),  0)
-    - COALESCE(SUM(t.amount) FILTER(WHERE t.type='expense'), 0)
-    - COALESCE(SUM(t.amount) FILTER(WHERE t.type='saving'),  0)
-  ELSE NULL END AS balance,
-  -- Deuda acumulada del mes actual (para crédito)
-  CASE WHEN a.subtype IN ('credit_card','credit_line') THEN
-    COALESCE(SUM(t.amount) FILTER(
-      WHERE t.type='expense'
-      AND TO_CHAR(t.date,'YYYY-MM') = TO_CHAR(NOW(),'YYYY-MM')
-    ), 0)
-  ELSE NULL END AS month_debt,
-  -- Disponible del mes actual (para crédito)
-  CASE WHEN a.subtype IN ('credit_card','credit_line') THEN
-    a.credit_limit - COALESCE(SUM(t.amount) FILTER(
-      WHERE t.type='expense'
-      AND TO_CHAR(t.date,'YYYY-MM') = TO_CHAR(NOW(),'YYYY-MM')
-    ), 0)
-  ELSE NULL END AS available,
-  -- Deuda total acumulada (crédito, todos los tiempos)
-  CASE WHEN a.subtype IN ('credit_card','credit_line') THEN
-    COALESCE(SUM(t.amount) FILTER(WHERE t.type='expense'), 0)
-  ELSE NULL END AS total_debt,
-  COALESCE(SUM(t.amount) FILTER(WHERE t.type='income'),  0) AS total_income,
-  COALESCE(SUM(t.amount) FILTER(WHERE t.type='expense'), 0) AS total_expense
-FROM accounts a
-LEFT JOIN transactions t ON t.account_id=a.id AND NOT t.is_void
-LEFT JOIN profiles p ON p.id=a.owner_profile
-WHERE a.is_active=TRUE
-GROUP BY a.id, a.family_id, a.name, a.subtype, a.color, a.institution,
-         a.last_four, a.credit_limit, a.opening_balance, p.display_name;
+  p.display_name as owner_name,
+  case
+    when a.subtype <> all (
+      array[
+        'credit_card'::account_subtype,
+        'credit_line'::account_subtype
+      ]
+    ) then a.opening_balance + COALESCE(
+      sum(t.amount) filter (
+        where
+          t.type = 'income'::txn_type
+      ),
+      0::numeric
+    ) - COALESCE(
+      sum(t.amount) filter (
+        where
+          t.type = 'expense'::txn_type
+      ),
+      0::numeric
+    ) + COALESCE(
+      sum(t.amount) filter (
+        where
+          t.type = 'saving'::txn_type
+      ),
+      0::numeric
+    )
+    else null::numeric
+  end as balance,
+  case
+    when a.subtype = any (
+      array[
+        'credit_card'::account_subtype,
+        'credit_line'::account_subtype
+      ]
+    ) then COALESCE(
+      sum(t.amount) filter (
+        where
+          t.type = 'expense'::txn_type
+          and to_char(t.date::timestamp with time zone, 'YYYY-MM'::text) = to_char(now(), 'YYYY-MM'::text)
+      ),
+      0::numeric
+    )
+    else null::numeric
+  end as month_debt,
+  case
+    when a.subtype = any (
+      array[
+        'credit_card'::account_subtype,
+        'credit_line'::account_subtype
+      ]
+    ) then a.credit_limit - COALESCE(
+      sum(t.amount) filter (
+        where
+          t.type = 'expense'::txn_type
+          and to_char(t.date::timestamp with time zone, 'YYYY-MM'::text) = to_char(now(), 'YYYY-MM'::text)
+      ),
+      0::numeric
+    )
+    else null::numeric
+  end as available,
+  case
+    when a.subtype = any (
+      array[
+        'credit_card'::account_subtype,
+        'credit_line'::account_subtype
+      ]
+    ) then COALESCE(
+      sum(t.amount) filter (
+        where
+          t.type = 'expense'::txn_type
+      ),
+      0::numeric
+    )
+    else null::numeric
+  end as total_debt,
+  COALESCE(
+    sum(t.amount) filter (
+      where
+        t.type = 'income'::txn_type
+    ),
+    0::numeric
+  ) as total_income,
+  COALESCE(
+    sum(t.amount) filter (
+      where
+        t.type = 'expense'::txn_type
+    ),
+    0::numeric
+  ) as total_expense
+from
+  accounts a
+  left join transactions t on t.account_id = a.id
+  and not t.is_void
+  left join profiles p on p.id = a.owner_profile
+where
+  a.is_active = true
+group by
+  a.id,
+  a.family_id,
+  a.name,
+  a.subtype,
+  a.color,
+  a.institution,
+  a.last_four,
+  a.credit_limit,
+  a.opening_balance,
+  p.display_name;
 
 COMMENT ON VIEW account_balances IS
   'Vista unificada de cuentas con saldo calculado dinámicamente.

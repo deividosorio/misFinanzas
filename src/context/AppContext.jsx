@@ -291,11 +291,20 @@ export function AppProvider({ children }) {
   const editAccount = async (id, changes) => {
     if (!isFamilyAdmin) return { error: new Error('Sin permiso') }
     const { error } = await supabase.rpc('rpc_update_account', {
-      p_account_id: id, p_name: changes.name || null, p_color: changes.color || null,
+      p_account_id: id,
+      p_name: changes.name || null,
+      p_subtype: changes.subtype || null,
+      p_owner_profile: changes.owner_profile || null,
+      p_color: changes.color || null,
       p_institution: changes.institution || null,
-      p_credit_limit: changes.credit_limit ? parseFloat(changes.credit_limit) : null,
-      p_notes: changes.notes || null, p_is_active: changes.is_active ?? null,
+      p_last_four: changes.last_four || null,
+      p_credit_limit: changes.credit_limit != null ? parseFloat(changes.credit_limit) : null,
+      p_opening_balance: changes.opening_balance != null ? parseFloat(changes.opening_balance) : null,
+      p_notes: changes.notes || null,
+      p_is_active: changes.is_active ?? null,
     })
+
+    console.log('[MiFinanza] editAccount result:', { error })
     if (!error) await loadData()
     return { error }
   }

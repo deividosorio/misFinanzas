@@ -63,6 +63,8 @@ import {
     ACC_COLORS, toDay,
 } from '../lib/constants'
 
+const ASSET_SUBTYPES = Object.keys(ACCOUNT_SUBTYPES).filter(subtype => !CREDIT_SUBTYPES.includes(subtype))
+
 // Helper local
 const isCred = (subtype) => CREDIT_SUBTYPES.includes(subtype)
 
@@ -652,7 +654,7 @@ export function EditSavingsGoalModal({ goal, onClose }) {
  * Solo muestra campos relevantes según el subtype actual de la cuenta.
  */
 export function EditAccountModal({ account, onClose }) {
-    const { t, editAccount, isFamilyAdmin } = useApp()
+    const { t, editAccount, isFamilyAdmin, members } = useApp()
 
     if (!isFamilyAdmin) {
         return (
@@ -667,31 +669,58 @@ export function EditAccountModal({ account, onClose }) {
         )
     }
 
-    const isCredit = isCred(account.subtype)
-    const subtypeConfig = ACCOUNT_SUBTYPES[account.subtype]
-
     const [f, setF] = useState({
         name: account.name,
+        subtype: account.subtype,
+        owner_profile: account.owner_profile || '',
         color: account.color || '#4f7cff',
         institution: account.institution || '',
+        last_four: account.last_four || '',
         credit_limit: String(account.credit_limit || ''),
+        opening_balance: String(account.opening_balance ?? '0'),
         notes: account.notes || '',
         is_active: account.is_active !== false,
     })
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
+    const subtypeConfig = ACCOUNT_SUBTYPES[f.subtype]
+    const isCredit = isCred(f.subtype)
+
+    const set = (key, value) => {
+        setError('')
+        setF(prev => ({
+            ...prev,
+            [key]: value,
+            ...(key === 'subtype' && CREDIT_SUBTYPES.includes(value)
+                ? { opening_balance: '0', last_four: prev.last_four, credit_limit: prev.credit_limit, color: ACCOUNT_SUBTYPES[value]?.color || '#ff6b6b' }
+                : {}),
+            ...(key === 'subtype' && !CREDIT_SUBTYPES.includes(value)
+                ? { credit_limit: '', last_four: '', color: ACCOUNT_SUBTYPES[value]?.color || '#4f7cff' }
+                : {}),
+        }))
+    }
+
+    const adultMembers = members.filter(m => !m.is_kid && m.status === 'active')
+
     const handleSave = async () => {
         if (!f.name.trim()) { setError('El nombre es requerido'); return }
         if (isCredit && (!f.credit_limit || parseFloat(f.credit_limit) <= 0)) {
             setError('El límite de crédito es requerido'); return
         }
+        if (!isCredit && parseFloat(f.opening_balance || '0') < 0) {
+            setError('El saldo inicial no puede ser negativo'); return
+        }
         setSaving(true)
         const { error } = await editAccount(account.id, {
             name: f.name.trim(),
+            subtype: f.subtype,
+            owner_profile: f.owner_profile || null,
             color: f.color,
             institution: f.institution.trim() || null,
-            credit_limit: isCredit ? parseFloat(f.credit_limit) : undefined,
+            last_four: isCredit ? f.last_four.trim() || null : null,
+            credit_limit: isCredit ? parseFloat(f.credit_limit) : null,
+            opening_balance: isCredit ? 0 : parseFloat(f.opening_balance || '0'),
             notes: f.notes.trim() || null,
             is_active: f.is_active,
         })
@@ -700,15 +729,33 @@ export function EditAccountModal({ account, onClose }) {
     }
 
     return (
-        <Modal title={`✏️ Editar ${subtypeConfig?.label || 'cuenta'}`} onClose={onClose}>
+        <Modal title={`✏️ Editar ${ACCOUNT_SUBTYPES[f.subtype]?.label || 'cuenta'}`} onClose={onClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {error && <ErrMsg msg={error} />}
 
-                {/* Badge del tipo */}
+                <Field label="Tipo de cuenta">
+                    <Select value={f.subtype} onChange={e => set('subtype', e.target.value)}>
+                        <optgroup label="Activo">
+                            {ASSET_SUBTYPES.map(subtype => (
+                                <option key={subtype} value={subtype}>
+                                    {ACCOUNT_SUBTYPES[subtype]?.icon} {ACCOUNT_SUBTYPES[subtype]?.label}
+                                </option>
+                            ))}
+                        </optgroup>
+                        <optgroup label="Crédito">
+                            {CREDIT_SUBTYPES.map(subtype => (
+                                <option key={subtype} value={subtype}>
+                                    {ACCOUNT_SUBTYPES[subtype]?.icon} {ACCOUNT_SUBTYPES[subtype]?.label}
+                                </option>
+                            ))}
+                        </optgroup>
+                    </Select>
+                </Field>
+
                 <div style={{
                     display: 'flex', alignItems: 'center', gap: 8,
-                    background: isCredit ? 'var(--red)0a' : 'var(--blue)0a',
-                    border: `1px solid ${isCredit ? 'var(--red)33' : 'var(--blue)33'}`,
+                    background: isCredit ? '#ff6b6b0a' : '#4f7cff0a',
+                    border: `1px solid ${isCredit ? '#ff6b6b33' : '#4f7cff33'}`,
                     borderRadius: 'var(--radius-sm)', padding: '8px 12px',
                 }}>
                     <span style={{ fontSize: 20 }}>{subtypeConfig?.icon}</span>
@@ -731,19 +778,47 @@ export function EditAccountModal({ account, onClose }) {
                     <Input value={f.name} onChange={e => setF(p => ({ ...p, name: e.target.value }))} />
                 </Field>
 
-                {/* Límite de crédito — solo para crédito */}
-                {isCredit && (
-                    <Field label="Límite de crédito (CAD) *">
-                        <Input type="number" value={f.credit_limit}
-                            onChange={e => setF(p => ({ ...p, credit_limit: e.target.value }))}
-                            min="0" step="100" />
+                {isCredit ? (
+                    <>
+                        <div className="g2">
+                            <Field label="Límite de crédito (CAD) *">
+                                <Input type="number" value={f.credit_limit}
+                                    onChange={e => setF(p => ({ ...p, credit_limit: e.target.value }))}
+                                    min="0" step="100" />
+                            </Field>
+                            <Field label="Últimos 4 dígitos (opcional)">
+                                <Input value={f.last_four}
+                                    onChange={e => setF(p => ({ ...p, last_four: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                                    placeholder="4521" maxLength={4} />
+                            </Field>
+                        </div>
+                    </>
+                ) : (
+                    <Field label="Saldo inicial (CAD)">
+                        <Input type="number" value={f.opening_balance}
+                            onChange={e => setF(p => ({ ...p, opening_balance: e.target.value }))}
+                            placeholder="0" min="0" step="0.01" />
+                        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                            El saldo actual de tu cuenta hoy. Los movimientos futuros se calculan sobre esto.
+                        </div>
                     </Field>
                 )}
 
-                <Field label="Institución">
+                <Field label="Institución bancaria">
                     <Input value={f.institution}
                         onChange={e => setF(p => ({ ...p, institution: e.target.value }))}
-                        placeholder="TD Bank, RBC, Scotiabank..." />
+                        placeholder="TD Bank, RBC, Scotiabank, Desjardins..." />
+                </Field>
+
+                <Field label="Titular de la cuenta">
+                    <Select value={f.owner_profile} onChange={e => setF(p => ({ ...p, owner_profile: e.target.value }))}>
+                        <option value="">— Seleccionar titular —</option>
+                        {adultMembers.map(member => (
+                            <option key={member.id} value={member.id}>
+                                {member.avatar_emoji} {member.display_name}
+                            </option>
+                        ))}
+                    </Select>
                 </Field>
 
                 <Field label="Color identificador">
@@ -751,11 +826,10 @@ export function EditAccountModal({ account, onClose }) {
                         onChange={c => setF(p => ({ ...p, color: c }))} />
                 </Field>
 
-                <Field label="Notas">
+                <Field label="Notas (opcional)">
                     <Input value={f.notes} onChange={e => setF(p => ({ ...p, notes: e.target.value }))} />
                 </Field>
 
-                {/* Toggle activa/inactiva */}
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13 }}>
                     <input type="checkbox" checked={f.is_active}
                         onChange={e => setF(p => ({ ...p, is_active: e.target.checked }))} />
