@@ -578,6 +578,7 @@ export function EditSavingsGoalModal({ goal, onClose }) {
             color: f.color,
             deadline: f.deadline || null,
             notes: f.notes.trim() || null,
+            account_id: f.account_id || null,
         })
         if (error) { setError(error.message); setSaving(false); return }
         onClose()

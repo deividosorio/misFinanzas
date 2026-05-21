@@ -403,7 +403,7 @@ export function AppProvider({ children }) {
     if (!error) await loadData(); return { data, error }
   }
   const editGoal = async (id, changes) => {
-    const { error } = await supabase.rpc('rpc_update_savings_goal', { p_goal_id: id, p_name: changes.name || null, p_target_amount: changes.target_amount ? parseFloat(changes.target_amount) : null, p_emoji: changes.emoji || null, p_color: changes.color || null, p_deadline: changes.deadline || null, p_status: changes.status || null, p_notes: changes.notes || null })
+    const { error } = await supabase.rpc('rpc_update_savings_goal', { p_goal_id: id, p_name: changes.name || null, p_target_amount: changes.target_amount ? parseFloat(changes.target_amount) : null, p_emoji: changes.emoji || null, p_color: changes.color || null, p_deadline: changes.deadline || null, p_status: changes.status || null, p_notes: changes.notes || null, p_account_id: changes.account_id || null })
     if (!error) await loadData(); return { error }
   }
   const deleteGoal = async (id) => {

@@ -137,7 +137,7 @@ function TxRow({ tx, isLast, onEdit, confirmDelete, onDeleteRequest, onCancelDel
 
   // Color semántico del monto
   const amtColor = { income: 'var(--green)', expense: 'var(--red)', saving: 'var(--purple)' }[tx.type] || 'var(--text)'
-  const sign = tx.type === 'income' ? '+' : '-'
+  const sign = tx.type === 'income' || tx.type === 'saving' ? '+' : '-'
 
   // Ícono de tipo de transacción
   const typeIcon = { income: '↑', expense: '↓', saving: '◎', transfer: '↔' }[tx.type] || '·'
@@ -168,7 +168,7 @@ function TxRow({ tx, isLast, onEdit, confirmDelete, onDeleteRequest, onCancelDel
             width: 32, height: 32, borderRadius: 'var(--radius-sm)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 14, flexShrink: 0,
-            background: tx.type === 'income' ? '#2dd4a012' : tx.type === 'expense' ? '#ff6b6b12' : '#a78bfa12',
+            background: tx.type === 'income' ? '#2dd4a012' : tx.type === 'expense' ? '#ff6b6b12' : tx.type === 'saving' ? '#a78bfa12' : 'var(--surface)',
           }}>
             {typeIcon}
           </div>

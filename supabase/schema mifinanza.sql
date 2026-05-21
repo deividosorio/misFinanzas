@@ -1046,7 +1046,7 @@ $$;
 CREATE OR REPLACE FUNCTION rpc_update_savings_goal(
   p_goal_id UUID, p_name TEXT DEFAULT NULL, p_target_amount NUMERIC DEFAULT NULL,
   p_emoji TEXT DEFAULT NULL, p_color TEXT DEFAULT NULL,
-  p_deadline DATE DEFAULT NULL, p_status goal_status DEFAULT NULL, p_notes TEXT DEFAULT NULL
+  p_deadline DATE DEFAULT NULL, p_status goal_status DEFAULT NULL, p_notes TEXT DEFAULT NULL, p_account_id UUID DEFAULT NULL
 )
 RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_g savings_goals;
@@ -1056,7 +1056,7 @@ BEGIN
     name=COALESCE(p_name,name), target_amount=COALESCE(p_target_amount,target_amount),
     emoji=COALESCE(p_emoji,emoji), color=COALESCE(p_color,color),
     deadline=COALESCE(p_deadline,deadline), status=COALESCE(p_status,status),
-    notes=COALESCE(p_notes,notes), updated_at=NOW()
+    notes=COALESCE(p_notes,notes), account_id=COALESCE(p_account_id,account_id), updated_at=NOW()
   WHERE id=p_goal_id AND family_id=auth_family_id() AND (owner_profile=auth.uid() OR auth_is_admin())
   RETURNING * INTO v_g;
   IF NOT FOUND THEN RAISE EXCEPTION 'No encontrado o sin permiso'; END IF;
