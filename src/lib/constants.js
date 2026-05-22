@@ -132,7 +132,7 @@ export const ACC_COLORS = [
 ]
 
 // ── Categorías de transacciones ───────────────────────────────────────────────
-export const INCOME_CATS  = ['salary','freelance','investment','other_income']
+export const INCOME_CATS  = ['salary','freelance','investment','tax_refund','child_benefit_canada','child_benefit_quebec','credit_card_points','other_income']
 export const EXPENSE_CATS = ['food','housing','transport','health','entertainment',
   'education','clothing','utilities','insurance','mortgage','car','debts', 
   'travel', 'subscription', 'gift' ,'other_expense', //'credit_card_payment', 'dons', 'transfer', 'transfer_to_saving'
@@ -141,7 +141,7 @@ export const SAVING_CATS  = ['emergency','vacation','retirement','goal']
 
 // ── Colores por categoría ─────────────────────────────────────────────────────
 export const CAT_COLORS = {
-  salary:'#34d399', freelance:'#6ee7b7', investment:'#a7f3d0', other_income:'#d1fae5',
+  salary:'#34d399', freelance:'#6ee7b7', investment:'#a7f3d0', tax_refund:'#6ee7b7', child_benefit_canada:'#7dd3fc', child_benefit_quebec:'#38bdf8', credit_card_points:'#a5b4fc', other_income:'#d1fae5',
   food:'#f87171', housing:'#fb923c', transport:'#fbbf24', health:'#e879f9',
   entertainment:'#818cf8', education:'#38bdf8', clothing:'#f472b6',
   utilities:'#60a5fa', insurance:'#a78bfa', mortgage:'#f97316', car:'#facc15', dons:'#fcd34d', debts:'#67e8f9',

@@ -218,6 +218,10 @@ const T = {
       salary:        'Salario',
       freelance:     'Freelance',
       investment:    'Inversión',
+      tax_refund:    'Retorno de impuestos',
+      child_benefit_canada: 'Beneficio infantil Canadá',
+      child_benefit_quebec: 'Beneficio infantil Québec',
+      credit_card_points: 'Puntos tarjeta de crédito',
       other_income:  'Otro ingreso',
       // Gastos
       food:          'Alimentación',
@@ -357,6 +361,7 @@ const T = {
     resetEmailSent:'Email sent. Check your inbox.',
     cats: {
       salary:'Salary', freelance:'Freelance', investment:'Investment',
+      tax_refund:'Tax refund', child_benefit_canada:'Canada child benefit', child_benefit_quebec:'Quebec child benefit', credit_card_points:'Credit card points',
       other_income:'Other income', food:'Food', housing:'Housing',
       transport:'Transport', health:'Health', entertainment:'Entertainment',
       education:'Education', clothing:'Clothing', utilities:'Utilities',
@@ -478,6 +483,7 @@ const T = {
     resetEmailSent:'Courriel envoyé. Vérifiez votre boîte.',
     cats: {
       salary:'Salaire', freelance:'Freelance', investment:'Investissement',
+      tax_refund:'Retour d\'impôts', child_benefit_canada:'Allocation des enfants Canada', child_benefit_quebec:'Allocation des enfants Québec', credit_card_points:'Points carte de crédit',
       other_income:'Autre revenu', food:'Alimentation', housing:'Logement',
       transport:'Transport', health:'Santé', entertainment:'Divertissement',
       education:'Éducation', clothing:'Vêtements', utilities:'Services',

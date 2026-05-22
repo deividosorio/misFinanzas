@@ -83,7 +83,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE member_status AS ENUM ('pending','active','suspended');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
-DO $$ BEGIN CREATE TYPE txn_type AS ENUM ('income','expense','saving','transfer', 'debt_payment');
+DO $$ BEGIN CREATE TYPE txn_type AS ENUM ('income','expense','saving','transfer');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN CREATE TYPE app_theme AS ENUM ('dark','light','system');
