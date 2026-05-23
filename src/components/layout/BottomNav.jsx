@@ -36,6 +36,7 @@ const MOBILE_ITEMS = (t) => [
 // Ítems adicionales en el menú "More"
 const MORE_ITEMS = (t, isOwner) => [
   { id: 'family',       icon: '👨‍👩‍👧', label: t.family      },
+  { id: 'accounts',     icon: '🏦', label: t.accounts || 'Cuentas' },
   { id: 'recurring',    icon: '↺',  label: t.recurring    },
   { id: 'savings',      icon: '◎',  label: t.savings      },
   { id: 'statements',   icon: '📊', label: t.statements   },

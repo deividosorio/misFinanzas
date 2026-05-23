@@ -32,6 +32,7 @@ const buildNavItems = (t, isOwner) => [
   { id: 'debts',        icon: '▣',  label: t.debts        },
   { id: 'recurring',    icon: '↺',  label: t.recurring    },
   { id: 'savings',      icon: '◎',  label: t.savings      },
+  { id: 'accounts',     icon: '🏦', label: t.accounts || 'Cuentas' },
   { id: 'kids',         icon: '⭐', label: t.kids         },
   { id: 'statements',   icon: '📊', label: t.statements   },
   { id: 'family',       icon: '👨‍👩‍👧', label: t.family      },

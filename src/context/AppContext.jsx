@@ -39,6 +39,7 @@ export function AppProvider({ children }) {
   const [goals, setGoals] = useState([])
   const [kidsGoals, setKidsGoals] = useState([])
   const [kidsDeposits, setKidsDeposits] = useState([])
+  const [customCategories, setCustomCategories] = useState([])
   const [members, setMembers] = useState([])
   const [summary, setSummary] = useState(null)
   const [netWorth, setNetWorth] = useState(null)
@@ -65,7 +66,37 @@ export function AppProvider({ children }) {
   }
 
   // ── Derivados ──────────────────────────────────────────────────────────
-  const t = T[lang] || T.es
+  const customCategoryLabels = useMemo(() => {
+    return customCategories.reduce((acc, cat) => {
+      const label = cat[`label_${lang}`] || cat.label_es || cat.label_en || cat.label_fr || cat.key
+      if (label) acc[cat.key] = label
+      return acc
+    }, {})
+  }, [customCategories, lang])
+
+  const mergedCats = useMemo(() => ({
+    ...(T[lang]?.cats || T.es.cats),
+    ...customCategoryLabels,
+  }), [lang, customCategoryLabels])
+
+  const categoriesByType = useMemo(() => {
+    const groups = { income: [], expense: [], saving: [] }
+    customCategories.forEach(cat => {
+      if (groups[cat.type]) groups[cat.type].push(cat.key)
+    })
+    return groups
+  }, [customCategories])
+
+  const categoriesById = useMemo(
+    () => new Map(customCategories.map(cat => [cat.id, cat])),
+    [customCategories]
+  )
+
+  const t = useMemo(() => ({
+    ...T[lang],
+    cats: mergedCats,
+  }), [lang, mergedCats])
+
   const isKid = profile?.is_kid || false
   const isOwner = profile?.role === 'owner'
   const isFamilyAdmin = ['owner', 'admin'].includes(profile?.role)
@@ -89,6 +120,17 @@ export function AppProvider({ children }) {
     })
     , [txns, af, selAcc])
 
+  const getCategoryLabel = (category) => {
+    if (!category) return category
+    // category may be an id (number) or a key (string)
+    if (categoriesById && categoriesById.get && categoriesById.get(category)) {
+      const cat = categoriesById.get(category)
+      return cat[`label_${lang}`] || cat.label_es || cat.label_en || cat.key
+    }
+    // fallback: treat as key
+    return t.cats?.[category] || category
+  }
+
   // Auth is now handled by useAuth hook — no local effect needed
   // Auth functions delegated to useAuth hook (see above)
 
@@ -107,6 +149,7 @@ export function AppProvider({ children }) {
         supabase.from('savings_goals').select('*').eq('family_id', fid),
         supabase.from('kids_goals').select('*').eq('family_id', fid),
         supabase.from('kids_deposits').select('*').eq('family_id', fid),
+        supabase.from('categories').select('*').eq('family_id', fid).order('created_at', { ascending: true }),
         supabase.from('profiles').select('*').eq('family_id', fid),
       ])
 
@@ -116,16 +159,48 @@ export function AppProvider({ children }) {
           ? (r.value.data ?? [])
           : []
 
-      const [accs, txnsD, debtsD, recD, goalsD, kgD, kdD, membsD] = results.map(safe)
+      const [accs, txnsD, debtsD, recD, goalsD, kgD, kdD, categoriesD, membsD] = results.map(safe)
 
       if (accs) setAccounts(accs)
-      if (txnsD) setTxns(txnsD)
+      // Map categories and attach category_id to transactions when possible
+      if (categoriesD) setCustomCategories(categoriesD)
+      if (membsD) setMembers(membsD)
+
+      // Build lookup maps from loaded categories
+      const keyToCat = {}
+      const idToCat = new Map()
+      if (categoriesD && categoriesD.length) {
+        categoriesD.forEach(cat => {
+          if (cat.key) keyToCat[cat.key] = cat
+          if (cat.id) idToCat.set(cat.id, cat)
+        })
+      }
+
+      if (txnsD) {
+        const mapped = txnsD.map(tx => {
+          const copy = { ...tx }
+          // If tx has a category key (legacy), convert to category_id when possible
+          if (copy.category && typeof copy.category === 'string') {
+            const c = keyToCat[copy.category]
+            if (c) {
+              copy.category_id = c.id
+              copy.category_key = copy.category
+            } else {
+              // keep legacy key in category_key
+              copy.category_key = copy.category
+            }
+          }
+          // If tx already has category_id, ensure we keep it
+          return copy
+        })
+        setTxns(mapped)
+      }
+
       if (debtsD) setDebts(debtsD)
       if (recD) setRecurring(recD)
       if (goalsD) setGoals(goalsD)
       if (kgD) setKidsGoals(kgD)
       if (kdD) setKidsDeposits(kdD)
-      if (membsD) setMembers(membsD)
 
       const { data: sumData, error: sumErr } = await supabase.rpc('rpc_dashboard_summary', {
         p_from: af.from, p_to: af.to, p_account_id: selAcc || null,
@@ -211,25 +286,54 @@ export function AppProvider({ children }) {
 
   // ── Transacciones ──────────────────────────────────────────────────────
   const addTxn = async (tx) => {
-    const { data, error } = await supabase.rpc('rpc_add_transaction', {
-      p_type: tx.type, p_category: tx.category, p_description: tx.description,
-      p_amount: parseFloat(tx.amount), p_date: tx.date,
-      p_account_id: tx.account_id || null, p_notes: tx.notes || null,
-      p_auto_source: tx.auto_source || null, p_source_id: tx.source_id || null,
-    })
+    if (!family?.id) return { error: new Error('Familia no definida') }
+    // Resolve category key -> id when possible
+    let categoryId = tx.category_id || null
+    if (!categoryId && tx.category) {
+      const byKey = customCategories.find(c => c.key === tx.category)
+      if (byKey) categoryId = byKey.id
+      else categoryId = tx.category
+    }
+
+    const payload = {
+      family_id: family.id,
+      created_by: profile?.id || null,
+      type: tx.type,
+      category_id: categoryId,
+      description: tx.description || null,
+      amount: parseFloat(tx.amount),
+      date: tx.date,
+      account_id: tx.account_id || null,
+      notes: tx.notes || null,
+      auto_source: tx.auto_source || null,
+      source_id: tx.source_id || null,
+    }
+
+    const { data, error } = await supabase.from('transactions').insert(payload).select().single()
     if (!error) await loadData()
     return { data, error }
   }
 
   const editTxn = async (id, changes) => {
-    const { error } = await supabase.rpc('rpc_update_transaction', {
-      p_txn_id: id,
-      p_type: changes.type || null, p_category: changes.category || null,
-      p_description: changes.description || null,
-      p_amount: changes.amount ? parseFloat(changes.amount) : null,
-      p_date: changes.date || null, p_account_id: changes.account_id || null,
-      p_notes: changes.notes || null,
-    })
+    // Resolve category key -> id when possible
+    let categoryId = changes.category_id ?? null
+    if (!categoryId && changes.category) {
+      const byKey = customCategories.find(c => c.key === changes.category)
+      if (byKey) categoryId = byKey.id
+      else categoryId = changes.category
+    }
+
+    const update = {
+      type: changes.type ?? undefined,
+      category_id: categoryId ?? undefined,
+      description: changes.description ?? undefined,
+      amount: changes.amount != null ? parseFloat(changes.amount) : undefined,
+      date: changes.date ?? undefined,
+      account_id: changes.account_id ?? undefined,
+      notes: changes.notes ?? undefined,
+    }
+    const payload = Object.fromEntries(Object.entries(update).filter(([, v]) => v !== undefined))
+    const { error } = await supabase.from('transactions').update(payload).eq('id', id)
     if (!error) await loadData()
     return { error }
   }
@@ -470,6 +574,43 @@ export function AppProvider({ children }) {
     if (!error) await loadData(); return { error }
   }
 
+  const addCategory = async (cat) => {
+    if (!isFamilyAdmin) return { error: new Error('Solo el admin puede crear categorías') }
+    const { data, error } = await supabase.from('categories').insert({
+      family_id: family.id,
+      created_by: profile?.id,
+      key: cat.key,
+      type: cat.type,
+      label_es: cat.label_es || null,
+      label_en: cat.label_en || null,
+      label_fr: cat.label_fr || null,
+      color: cat.color || '#94a3b8',
+    }).select().single()
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  const editCategory = async (id, changes) => {
+    if (!isFamilyAdmin) return { error: new Error('Solo el admin puede editar categorías') }
+    const { data, error } = await supabase.from('categories').update({
+      key: changes.key,
+      type: changes.type,
+      label_es: changes.label_es || null,
+      label_en: changes.label_en || null,
+      label_fr: changes.label_fr || null,
+      color: changes.color || '#94a3b8',
+    }).eq('id', id).select().single()
+    if (!error) await loadData()
+    return { data, error }
+  }
+
+  const deleteCategory = async (id) => {
+    if (!isFamilyAdmin) return { error: new Error('Solo el admin puede eliminar categorías') }
+    const { error } = await supabase.from('categories').delete().eq('id', id)
+    if (!error) await loadData()
+    return { error }
+  }
+
   const getAccount = (id) => accounts.find(a => a.id === id)
   const getMember = (id) => members.find(m => m.id === id)
   const openModal = (name) => setModal(name)
@@ -480,6 +621,7 @@ export function AppProvider({ children }) {
     onboardingState, signOut, updateProfile, createFamily, joinFamily, reloadProfile,
     assetAccounts, creditAccounts, debts, recurring, txns, payCreditCard,
     goals, kidsGoals, summary, netWorth, dataLoading, filteredTxns,
+    customCategories,
     t, lang, setLang, tab, setTab,
     isKid, isOwner, isFamilyAdmin, kids, pendingMembers,
     filterType, setFilterType,
@@ -487,7 +629,9 @@ export function AppProvider({ children }) {
     af, applyFilter, selAcc, setSelAcc,
     modal, openModal, closeModal,
     addTxn, editTxn, deleteTxn,
+    addCategory, editCategory, deleteCategory,
     addAccount, editAccount,
+    categoriesByType,
     addDebt, editDebt, deleteDebt, payDebt,
     addRecurring, editRecurring, deleteRecurring, markRecPaid,
     addGoal, editGoal, deleteGoal, depositGoal,

@@ -78,6 +78,7 @@ import Transactions from './pages/Transactions'
 import Debts from './pages/Debts'
 import Recurring from './pages/Recurring'
 import Savings from './pages/Savings'
+import Accounts from './pages/Accounts'
 import Kids from './pages/Kids'
 import Statements from './pages/Statements'
 import Family from './pages/Family'
@@ -106,6 +107,7 @@ const PAGE_MAP = {
   debts: <Debts />,
   recurring: <Recurring />,
   savings: <Savings />,
+  accounts: <Accounts />,
   kids: <Kids parentView />,
   statements: <Statements />,
   family: <Family />,
