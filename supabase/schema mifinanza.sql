@@ -1334,7 +1334,8 @@ $$;
 -- Vista unificada de cuentas con saldo calculado
 -- Para activos: saldo = apertura + ingresos - gastos + ahorros
 -- Para crédito: disponible = límite - gastos_acumulados_mes, deuda = gastos_acumulados
-CREATE OR REPLACE VIEW account_balances AS
+CREATE OR REPLACE VIEW account_balances
+with (security_invoker = on) AS
 select
   a.id,
   a.family_id,
@@ -1468,7 +1469,7 @@ COMMENT ON VIEW account_balances IS
    is_credit:  true si es tarjeta o línea de crédito';
 
 -- Vista de pagos recurrentes con info de cuenta y deuda
-CREATE OR REPLACE VIEW recurring_with_details AS
+CREATE OR REPLACE VIEW recurring_with_details  WITH (security_invoker = on) AS
 SELECT
   r.*,
   a.name AS account_name,
@@ -1489,7 +1490,7 @@ LEFT JOIN debts d ON d.id = r.linked_debt_id
 WHERE r.is_active = TRUE;
 
 -- Vista de límites por plan
-CREATE OR REPLACE VIEW plan_limits AS
+CREATE OR REPLACE VIEW plan_limits  WITH (security_invoker = on) AS
 SELECT
   f.id AS family_id, f.plan,
   COUNT(DISTINCT p.id)  AS member_count,
