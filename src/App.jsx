@@ -95,6 +95,7 @@ import {
   RecurringModal,
   GoalModal,
   KidGoalModal,
+  CategoryModal,   // Nuevo modal para crear categorías personalizadas (Family.jsx)
 } from './pages/Modals'
 
 // Modal de perfil — abierto desde el Header
@@ -196,6 +197,9 @@ function AppInner() {
 
       {/* Nueva meta de ahorro niños */}
       {modal === 'kidGoal' && <KidGoalModal />}
+
+      {/* Nuevo modal para crear categorías personalizadas */}
+      {modal === 'category' && <CategoryModal />}
     </div>
   )
 }

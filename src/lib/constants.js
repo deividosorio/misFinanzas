@@ -131,25 +131,6 @@ export const ACC_COLORS = [
   '#e879f9', '#38bdf8', '#fb923c', '#a78bfa',
 ]
 
-// ── Categorías de transacciones ───────────────────────────────────────────────
-export const INCOME_CATS  = ['salary','freelance','investment','tax_refund','child_benefit_canada','child_benefit_quebec','credit_card_points','other_income']
-export const EXPENSE_CATS = ['food','groceries','housing','transport','health','entertainment',
-  'education','clothing','utilities','insurance','mortgage','car','debts', 'formation','kids_activities', 'kids_support', 'kids_wishlist',
-  'travel','subscription','gift','donations','credit_card_fees','cursos','cuota_hija','other_expense', 
-]
-export const SAVING_CATS  = ['emergency','vacation','retirement','goal']
-
-// ── Colores por categoría ─────────────────────────────────────────────────────
-export const CAT_COLORS = {
-  salary:'#34d399', freelance:'#6ee7b7', investment:'#a7f3d0', tax_refund:'#6ee7b7', child_benefit_canada:'#7dd3fc', child_benefit_quebec:'#38bdf8', credit_card_points:'#a5b4fc', other_income:'#d1fae5',
-  food:'#f87171', groceries:'#fca5a5', housing:'#fb923c', transport:'#fbbf24', health:'#e879f9',
-  entertainment:'#818cf8', education:'#38bdf8', clothing:'#f472b6',
-  utilities:'#60a5fa', insurance:'#a78bfa', mortgage:'#f97316', car:'#facc15', donations:'#fcd34d', credit_card_fees:'#fb7185', debts:'#67e8f9',
-  emergency:'#fcd34d', vacation:'#67e8f9', retirement:'#c084fc', goal:'#86efac', formation:'#fbbf24', cursos:'#38bdf8', cuota_hija:'#fbbf24',
-  transfer:'#94a3b8', transfer_to_saving:'#2dd4a0', travel:'#fb7185', subscription:'#818cf8', gift:'#fbbf24',
-  other_expense:'#94a3b8', credit_card_payment:'#ff6b6b', kids_activities:'#fbbf24', kids_support:'#f472b6', kids_wishlist:'#34d399',
-}
-
 export const PLAN_COLORS = {
   free:'#5a6180', pro:'#4f7cff', family:'#2dd4a0', admin:'#ff6b6b',
 }

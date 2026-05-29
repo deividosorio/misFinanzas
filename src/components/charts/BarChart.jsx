@@ -32,7 +32,6 @@ import {
   CartesianGrid,
   Cell,
 } from 'recharts'
-import { CAT_COLORS } from '../../lib/constants'
 
 const TOOLTIP_STYLE = {
   background:   'var(--card)',
@@ -135,19 +134,22 @@ export function MonthlyBarChart({
  *   - XAxis → valores numéricos (horizontal)
  *   - YAxis → categorías (vertical, etiquetas a la izquierda)
  *
- * Cada barra tiene el color de la categoría correspondiente (CAT_COLORS).
+ * Cada barra tiene el color de la categoría correspondiente (del colorMap).
  *
  * @param {Array}    data         - [{ category: string, value: number }]
  * @param {number}   height       - Altura total en px (default: 220)
  * @param {number}   yAxisWidth   - Ancho reservado para etiquetas (default: 90)
  * @param {function} formatter    - Formato del tooltip: v => string
  * @param {object}   labelMap     - Mapa categoría → nombre: { food: 'Alimentación' }
+ * @param {object}   colorMap     - Mapa categoría → color hex
+ *                                   (ej: categoryColorMap del contexto)
  *
  * EJEMPLO:
  *   <HorizontalBarChart
  *     data={summary.by_category}
  *     formatter={v => fmt(v)}
  *     labelMap={t.cats}
+ *     colorMap={categoryColorMap}
  *     height={220}
  *   />
  */
@@ -157,6 +159,7 @@ export function HorizontalBarChart({
   yAxisWidth  = 90,
   formatter,
   labelMap    = {},
+  colorMap    = {},
 }) {
   if (!data.length) {
     return (
@@ -211,7 +214,7 @@ export function HorizontalBarChart({
           {data.map(entry => (
             <Cell
               key={entry.category}
-              fill={CAT_COLORS[entry.category] || '#4f7cff'}
+              fill={colorMap[entry.category] || '#4f7cff'}
             />
           ))}
         </Bar>

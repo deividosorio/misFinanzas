@@ -34,7 +34,7 @@ import { fmt, fmtSign, pct, moLabel, ACCOUNT_SUBTYPES, CREDIT_SUBTYPES } from '.
 
 export default function Dashboard() {
     const {
-        t, summary, netWorth, filteredTxns,
+        t, summary, netWorth, filteredTxns, categoryColorMap,
         accounts, assetAccounts, creditAccounts,
         debts, openModal, setTab, setSelAcc,
     } = useApp()
@@ -160,6 +160,7 @@ export default function Dashboard() {
                             height={200}
                             formatter={v => [fmt(v), '']}
                             labelMap={t.cats}
+                            colorMap={categoryColorMap}
                         />
                     ) : (
                         <Empty icon="🥧" message={t.noData} />

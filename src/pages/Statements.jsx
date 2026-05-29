@@ -59,7 +59,7 @@ const TABS = [
 
 export default function Statements() {
     const {
-        t, summary, netWorth,
+        t, summary, netWorth, categoryColorMap,
         assetAccounts, creditAccounts,
         debts, txns, filteredTxns,
     } = useApp()
@@ -338,6 +338,7 @@ function IncomeStatement({ summary, filteredTxns, t }) {
                             height={200}
                             formatter={v => [fmt(v), '']}
                             labelMap={t.cats}
+                            colorMap={categoryColorMap}
                         />
                     </Card>
                     <Card>
@@ -346,6 +347,7 @@ function IncomeStatement({ summary, filteredTxns, t }) {
                             data={byCategory}
                             formatter={v => [fmt(v), '']}
                             labelMap={t.cats}
+                            colorMap={categoryColorMap}
                             height={220}
                         />
                     </Card>

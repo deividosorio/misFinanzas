@@ -120,6 +120,7 @@ function DebtCard({ debt }) {
   const { t, deleteDebt, recurring, txns, getAccount } = useApp()
   const [editing, setEditing] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [expandPayments, setExpandPayments] = useState(false)
 
   const paid = debt.paid_amount || 0
   const total = debt.total_amount || 0
@@ -283,31 +284,55 @@ function DebtCard({ debt }) {
         {/* Últimos pagos registrados */}
         {debtPayments.length > 0 && (
           <div>
-            <div className="lbl" style={{ marginBottom: 8 }}>Últimos pagos registrados</div>
-            {debtPayments.map(tx => {
-              const txAcc = getAccount(tx.account_id)
-              const txAccCfg = txAcc ? ACCOUNT_SUBTYPES[txAcc.subtype] : null
-              return (
-                <div key={tx.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 12,
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      fontSize: 10, color: 'var(--green)', background: 'var(--green)14',
-                      borderRadius: 4, padding: '1px 6px', fontWeight: 600,
-                    }}>↺ Auto</span>
-                    <span style={{ color: 'var(--muted)' }}>{tx.date}</span>
-                    {txAcc && (
-                      <span style={{ color: txAcc.color, display: 'flex', alignItems: 'center', gap: 3 }}>
-                        {txAccCfg?.icon} {txAcc.name}
-                      </span>
-                    )}
-                  </div>
-                  <span className="mono" style={{ color: 'var(--red)' }}>-{fmt(tx.amount)}</span>
-                </div>
-              )
-            })}
+            <button
+              onClick={() => setExpandPayments(!expandPayments)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: expandPayments ? 8 : 0,
+                padding: 0,
+                fontSize: 'inherit',
+                fontFamily: 'inherit',
+              }}
+            >
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {expandPayments ? '▼' : '▶'}
+              </span>
+              <div className="lbl" style={{ margin: 0 }}>Últimos pagos ({debtPayments.length})</div>
+            </button>
+            
+            {expandPayments && (
+              <div style={{ marginTop: 8 }}>
+                {debtPayments.map(tx => {
+                  const txAcc = getAccount(tx.account_id)
+                  const txAccCfg = txAcc ? ACCOUNT_SUBTYPES[txAcc.subtype] : null
+                  return (
+                    <div key={tx.id} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '6px 0', borderBottom: '1px solid var(--border)', fontSize: 12,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          fontSize: 10, color: 'var(--green)', background: 'var(--green)14',
+                          borderRadius: 4, padding: '1px 6px', fontWeight: 600,
+                        }}>↺ Auto</span>
+                        <span style={{ color: 'var(--muted)' }}>{tx.date}</span>
+                        {txAcc && (
+                          <span style={{ color: txAcc.color, display: 'flex', alignItems: 'center', gap: 3 }}>
+                            {txAccCfg?.icon} {txAcc.name}
+                          </span>
+                        )}
+                      </div>
+                      <span className="mono" style={{ color: 'var(--red)' }}>-{fmt(tx.amount)}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 

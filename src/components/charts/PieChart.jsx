@@ -27,7 +27,6 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { CAT_COLORS } from '../../lib/constants'
 
 const TOOLTIP_STYLE = {
   background:   'var(--card)',
@@ -48,6 +47,8 @@ const TOOLTIP_STYLE = {
  * @param {function} labelFormatter - Formato del label del tooltip
  * @param {object}   labelMap      - Mapa categoría → nombre legible
  *                                   (ej: t.cats — las traducciones)
+ * @param {object}   colorMap      - Mapa categoría → color hex
+ *                                   (ej: categoryColorMap del contexto)
  *
  * EJEMPLO:
  *   <CategoryPieChart
@@ -55,6 +56,7 @@ const TOOLTIP_STYLE = {
  *     formatter={v => fmt(v)}
  *     labelFormatter={cat => t.cats[cat] || cat}
  *     labelMap={t.cats}
+ *     colorMap={categoryColorMap}
  *   />
  */
 export default function CategoryPieChart({
@@ -66,6 +68,7 @@ export default function CategoryPieChart({
   formatter,
   labelFormatter,
   labelMap     = {},
+  colorMap     = {},
 }) {
   if (!data.length) {
     return (
@@ -101,7 +104,7 @@ export default function CategoryPieChart({
             {data.map(entry => (
               <Cell
                 key={entry.category}
-                fill={CAT_COLORS[entry.category] || '#4f7cff'}
+                fill={colorMap[entry.category] || '#4f7cff'}
               />
             ))}
           </Pie>
@@ -130,7 +133,7 @@ export default function CategoryPieChart({
               width:        7,
               height:       7,
               borderRadius: 2,
-              background:   CAT_COLORS[d.category] || '#4f7cff',
+              background:   colorMap[d.category] || '#4f7cff',
               flexShrink:   0,
             }} />
             {/* Nombre de la categoría */}

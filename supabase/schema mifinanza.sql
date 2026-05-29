@@ -682,6 +682,7 @@ BEGIN
 END;
 $$;
 
+
 CREATE OR REPLACE FUNCTION rpc_update_account(
   p_account_id   UUID,
   p_name         TEXT    DEFAULT NULL,
@@ -733,14 +734,14 @@ BEGIN
 END;
 $$;
 
+
 -- ── Transacciones ─────────────────────────────────────────────
 
 -- rpc_add_transaction: registra un movimiento con la cuenta correcta
 -- El sistema registra la transacción y la cuenta manejada sola la lógica
 -- de saldo (activo: cambia balance, pasivo: cambia deuda acumulada).
 CREATE OR REPLACE FUNCTION rpc_add_transaction(
-  p_type        txn_type,
-  p_category    TEXT,
+  p_category_id UUID,          -- ← NUEVO: reemplaza p_category
   p_description TEXT,
   p_amount      NUMERIC,
   p_date        DATE,
@@ -749,51 +750,133 @@ CREATE OR REPLACE FUNCTION rpc_add_transaction(
   p_auto_source TEXT    DEFAULT NULL,
   p_source_id   UUID    DEFAULT NULL
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
   v_fid UUID := auth_family_id();
   v_txn transactions;
 BEGIN
-  IF v_fid IS NULL THEN RAISE EXCEPTION 'Sin familia asignada'; END IF;
-  IF auth_is_kid() THEN RAISE EXCEPTION 'Los niños no pueden registrar transacciones'; END IF;
-  IF auth_status()!='active' THEN RAISE EXCEPTION 'Cuenta pendiente de aprobación'; END IF;
-  IF p_amount<=0 THEN RAISE EXCEPTION 'El monto debe ser mayor que cero'; END IF;
+  IF v_fid IS NULL THEN
+    RAISE EXCEPTION 'Sin familia asignada';
+  END IF;
+
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'Los niños no pueden registrar transacciones';
+  END IF;
+
+  IF auth_status() <> 'active' THEN
+    RAISE EXCEPTION 'Cuenta pendiente de aprobación';
+  END IF;
+
+  IF p_amount <= 0 THEN
+    RAISE EXCEPTION 'El monto debe ser mayor que cero';
+  END IF;
 
   -- Validar que la cuenta pertenece a la familia
-  IF p_account_id IS NOT NULL AND NOT EXISTS(
-    SELECT 1 FROM accounts WHERE id=p_account_id AND family_id=v_fid AND is_active=TRUE
-  ) THEN RAISE EXCEPTION 'Cuenta no encontrada o inactiva'; END IF;
+  IF p_account_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1
+    FROM accounts
+    WHERE id = p_account_id
+      AND family_id = v_fid
+      AND is_active = TRUE
+  ) THEN
+    RAISE EXCEPTION 'Cuenta no encontrada o inactiva';
+  END IF;
 
-  INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id)
-  VALUES (v_fid,auth.uid(),p_type,p_category,p_description,p_amount,p_date,p_account_id,p_notes,p_auto_source,p_source_id)
+  --------------------------------------------------------------------
+  -- Crear transacción
+  -- YA NO USA type NI category
+  -- category_id viene desde p_category_id
+  --------------------------------------------------------------------
+  INSERT INTO transactions (
+    family_id,
+    created_by,
+    category_id,
+    description,
+    amount,
+    date,
+    account_id,
+    notes,
+    auto_source,
+    source_id
+  )
+  VALUES (
+    v_fid,
+    auth.uid(),
+    p_category_id,       -- ← categoría real desde categories
+    p_description,
+    p_amount,
+    p_date,
+    p_account_id,
+    p_notes,
+    p_auto_source,
+    p_source_id
+  )
   RETURNING * INTO v_txn;
+
   RETURN row_to_json(v_txn);
 END;
 $$;
 
+
+
+
 CREATE OR REPLACE FUNCTION rpc_update_transaction(
   p_txn_id      UUID,
-  p_type        txn_type DEFAULT NULL,
-  p_category    TEXT     DEFAULT NULL,
+  p_category_id UUID     DEFAULT NULL,   -- ← NUEVO: reemplaza p_category
   p_description TEXT     DEFAULT NULL,
   p_amount      NUMERIC  DEFAULT NULL,
   p_date        DATE     DEFAULT NULL,
   p_account_id  UUID     DEFAULT NULL,
   p_notes       TEXT     DEFAULT NULL
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_txn transactions;
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_txn transactions;
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
-  SELECT * INTO v_txn FROM transactions WHERE id=p_txn_id AND family_id=auth_family_id() AND NOT is_void;
-  IF NOT FOUND THEN RAISE EXCEPTION 'Transacción no encontrada'; END IF;
-  IF v_txn.created_by!=auth.uid() AND NOT auth_is_admin() THEN RAISE EXCEPTION 'Sin permiso para editar'; END IF;
-  UPDATE transactions SET
-    type=COALESCE(p_type,type), category=COALESCE(p_category,category),
-    description=COALESCE(p_description,description), amount=COALESCE(p_amount,amount),
-    date=COALESCE(p_date,date), account_id=COALESCE(p_account_id,account_id),
-    notes=COALESCE(p_notes,notes), updated_at=NOW()
-  WHERE id=p_txn_id RETURNING * INTO v_txn;
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
+
+  -- Obtener transacción
+  SELECT *
+  INTO v_txn
+  FROM transactions
+  WHERE id = p_txn_id
+    AND family_id = auth_family_id()
+    AND NOT is_void;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Transacción no encontrada';
+  END IF;
+
+  -- Validar permisos
+  IF v_txn.created_by != auth.uid() AND NOT auth_is_admin() THEN
+    RAISE EXCEPTION 'Sin permiso para editar';
+  END IF;
+
+  --------------------------------------------------------------------
+  -- Actualizar transacción
+  -- YA NO se usa type ni category
+  -- category_id viene desde p_category_id
+  --------------------------------------------------------------------
+  UPDATE transactions
+  SET
+    category_id = COALESCE(p_category_id, category_id),
+    description = COALESCE(p_description, description),
+    amount      = COALESCE(p_amount, amount),
+    date        = COALESCE(p_date, date),
+    account_id  = COALESCE(p_account_id, account_id),
+    notes       = COALESCE(p_notes, notes),
+    updated_at  = NOW()
+  WHERE id = p_txn_id
+  RETURNING * INTO v_txn;
+
   RETURN row_to_json(v_txn);
 END;
 $$;
@@ -802,23 +885,27 @@ $$;
 -- Pago de tarjeta de crédito: mueve dinero de una cuenta de activo a una tarjeta
 -- Crea DOS transacciones coordinadas en la tabla transactions.
 CREATE OR REPLACE FUNCTION rpc_pay_credit_card(
-  p_family_id       UUID,
-  p_from_account_id UUID,  -- cuenta origen (checking / savings)
-  p_credit_account_id UUID, -- tarjeta (credit_card / credit_line)
-  p_amount          NUMERIC,
-  p_date            DATE,
-  p_notes           TEXT DEFAULT NULL
+  p_family_id         UUID,
+  p_from_account_id   UUID,   -- cuenta origen (checking / savings)
+  p_credit_account_id UUID,   -- tarjeta (credit_card / credit_line)
+  p_amount            NUMERIC,
+  p_date              DATE,
+  p_category_id       UUID,   -- ← NUEVO: categoría real desde categories
+  p_notes             TEXT DEFAULT NULL
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
   v_from_family UUID;
   v_to_family   UUID;
 BEGIN
   IF p_amount <= 0 THEN
-    raise exception 'Amount must be > 0';
+    RAISE EXCEPTION 'Amount must be > 0';
   END IF;
 
-  -- Validar que ambas cuentas pertenecen a la misma familia
+  -- Validar que ambas cuentas pertenecen a la familia
   SELECT family_id INTO v_from_family FROM accounts WHERE id = p_from_account_id;
   SELECT family_id INTO v_to_family   FROM accounts WHERE id = p_credit_account_id;
 
@@ -830,40 +917,85 @@ BEGIN
     RAISE EXCEPTION 'Accounts do not belong to the same family';
   END IF;
 
-  -- 1) Salida de la cuenta de origen (disminuye saldo)
+  --------------------------------------------------------------------
+  -- 1) Salida de la cuenta origen (expense)
+  -- YA NO USA type NI category
+  -- category_id = p_category_id
+  --------------------------------------------------------------------
   INSERT INTO transactions (
-    family_id, created_by, type, category,
-    description, amount, date, account_id, notes, auto_source
+    family_id,
+    created_by,
+    category_id,
+    description,
+    amount,
+    date,
+    account_id,
+    notes,
+    auto_source,
+    source_id
   )
   VALUES (
-    p_family_id, auth.uid(), 'expense', 'credit_card_payment',
-    'Pago tarjeta crédito', p_amount, p_date, p_from_account_id, p_notes, 'credit_payment'
+    p_family_id,
+    auth.uid(),
+    p_category_id,                         -- ← categoría real
+    'Pago tarjeta crédito',
+    p_amount,
+    p_date,
+    p_from_account_id,
+    p_notes,
+    'credit_payment',
+    p_credit_account_id
   );
 
-  -- 2) Entrada en la tarjeta (reduce deuda → debe ser INCOME)
-  insert into transactions (
-    family_id, created_by, type, category,
-    description, amount, date, account_id, notes, auto_source
+  --------------------------------------------------------------------
+  -- 2) Entrada en la tarjeta (income)
+  -- La vista transactions_with_category resolverá el tipo
+  --------------------------------------------------------------------
+  INSERT INTO transactions (
+    family_id,
+    created_by,
+    category_id,
+    description,
+    amount,
+    date,
+    account_id,
+    notes,
+    auto_source,
+    source_id
   )
-  values (
-    p_family_id, auth.uid(), 'income', 'credit_card_payment',
-    'Pago recibido tarjeta', p_amount, p_date, p_credit_account_id, p_notes, 'credit_payment'
+  VALUES (
+    p_family_id,
+    auth.uid(),
+    p_category_id,                         -- ← misma categoría
+    'Pago recibido tarjeta',
+    p_amount,
+    p_date,
+    p_credit_account_id,
+    p_notes,
+    'credit_payment',
+    p_from_account_id
   );
 
-RETURN json_build_object('ok', TRUE);  
+  RETURN json_build_object('ok', TRUE);
 END;
 $$;
+
+
+
 
 CREATE OR REPLACE FUNCTION rpc_transfer_to_saving(
   p_from_account_id UUID,
   p_to_account_id UUID,
   p_amount NUMERIC,
-  p_category TEXT,
+  p_category_id UUID,                -- ← NUEVO: category_id en vez de TEXT
   p_description TEXT,
   p_date DATE DEFAULT CURRENT_DATE,
   p_notes TEXT DEFAULT NULL
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
   v_fid UUID := auth_family_id();
   v_from_family UUID;
@@ -871,32 +1003,91 @@ DECLARE
   v_txn_from UUID;
   v_txn_to UUID;
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
-  IF p_amount<=0 THEN RAISE EXCEPTION 'Monto inválido'; END IF;
-  SELECT family_id INTO v_from_family FROM accounts WHERE id=p_from_account_id;
-  SELECT family_id INTO v_to_family   FROM accounts WHERE id=p_to_account_id;
-  IF v_from_family IS NULL OR v_to_family IS NULL OR v_from_family<>v_fid OR v_to_family<>v_fid THEN
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
+
+  IF p_amount <= 0 THEN
+    RAISE EXCEPTION 'Monto inválido';
+  END IF;
+
+  -- Validar cuentas
+  SELECT family_id INTO v_from_family FROM accounts WHERE id = p_from_account_id;
+  SELECT family_id INTO v_to_family   FROM accounts WHERE id = p_to_account_id;
+
+  IF v_from_family IS NULL OR v_to_family IS NULL
+     OR v_from_family <> v_fid OR v_to_family <> v_fid THEN
     RAISE EXCEPTION 'Cuenta de origen o destino no encontrada';
   END IF;
+
   IF p_from_account_id = p_to_account_id THEN
     RAISE EXCEPTION 'Cuenta origen y destino no pueden coincidir';
   END IF;
-  INSERT INTO transactions(
-    family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id
-  ) VALUES (
-    v_fid, auth.uid(), 'expense', 'transfer_to_saving',
-    COALESCE(p_description,'Transferencia a ahorro'), p_amount, p_date,
-    p_from_account_id, p_notes, 'saving_transfer', p_to_account_id
-  ) RETURNING id INTO v_txn_from;
 
-  INSERT INTO transactions(
-    family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id
-  ) VALUES (
-    v_fid, auth.uid(), 'saving', COALESCE(p_category,'goal'),
-    COALESCE(p_description,'Ahorro recibido'), p_amount, p_date,
-    p_to_account_id, p_notes, 'saving_transfer', p_from_account_id
-  ) RETURNING id INTO v_txn_to;
+  --------------------------------------------------------------------
+  -- TRANSACCIÓN DE SALIDA (expense)
+  -- YA NO USA type NI category
+  -- category_id viene desde p_category_id
+  --------------------------------------------------------------------
+  INSERT INTO transactions (
+    family_id,
+    created_by,
+    category_id,
+    description,
+    amount,
+    date,
+    account_id,
+    notes,
+    auto_source,
+    source_id
+  )
+  VALUES (
+    v_fid,
+    auth.uid(),
+    p_category_id,                                 -- ← categoría REAL
+    COALESCE(p_description, 'Transferencia a ahorro'),
+    p_amount,
+    p_date,
+    p_from_account_id,
+    p_notes,
+    'saving_transfer',
+    p_to_account_id
+  )
+  RETURNING id INTO v_txn_from;
 
+  --------------------------------------------------------------------
+  -- TRANSACCIÓN DE ENTRADA (saving)
+  -- category_id también viene desde p_category_id
+  --------------------------------------------------------------------
+  INSERT INTO transactions (
+    family_id,
+    created_by,
+    category_id,
+    description,
+    amount,
+    date,
+    account_id,
+    notes,
+    auto_source,
+    source_id
+  )
+  VALUES (
+    v_fid,
+    auth.uid(),
+    p_category_id,                                 -- ← misma categoría
+    COALESCE(p_description, 'Ahorro recibido'),
+    p_amount,
+    p_date,
+    p_to_account_id,
+    p_notes,
+    'saving_transfer',
+    p_from_account_id
+  )
+  RETURNING id INTO v_txn_to;
+
+  --------------------------------------------------------------------
+  -- RESPUESTA
+  --------------------------------------------------------------------
   RETURN json_build_object(
     'from_transaction_id', v_txn_from,
     'to_transaction_id', v_txn_to
@@ -912,17 +1103,23 @@ CREATE OR REPLACE FUNCTION rpc_pay_debt(
   p_amount NUMERIC,
   p_date DATE
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
   v_debt debts;
   v_fid UUID := auth_family_id();
   v_new_paid NUMERIC;
+  v_txn_id UUID;
 BEGIN
-  IF auth_is_kid() THEN
+  IF auth_is_kid() THEN 
     RAISE EXCEPTION 'No autorizado';
   END IF;
 
-  SELECT * INTO v_debt
+  -- Obtener deuda
+  SELECT *
+  INTO v_debt
   FROM debts
   WHERE id = p_debt_id
     AND family_id = v_fid
@@ -940,14 +1137,60 @@ BEGIN
       updated_at = NOW()
   WHERE id = p_debt_id;
 
+  --------------------------------------------------------------------
+  -- Crear transacción automática (idempotente)
+  -- YA NO USA type NI category
+  -- category_id viene desde debts.category_id
+  --------------------------------------------------------------------
+  IF NOT EXISTS (
+    SELECT 1
+    FROM transactions
+    WHERE source_id = p_debt_id
+      AND auto_source = 'debt_payment'
+      AND date = p_date
+      AND amount = p_amount
+      AND family_id = v_fid
+      AND NOT is_void
+  ) THEN
+    INSERT INTO transactions (
+      family_id,
+      created_by,
+      category_id,
+      description,
+      amount,
+      date,
+      account_id,
+      auto_source,
+      source_id
+    )
+    VALUES (
+      v_fid,
+      auth.uid(),
+      v_debt.category_id,                       -- ← categoría REAL desde tabla categories
+      'Pago: ' || v_debt.name,
+      p_amount,
+      p_date,
+      v_debt.linked_account_id,
+      'debt_payment',
+      p_debt_id
+    )
+    RETURNING id INTO v_txn_id;
+  END IF;
+
+  --------------------------------------------------------------------
+  -- Respuesta final
+  --------------------------------------------------------------------
   RETURN json_build_object(
     'debt_id', p_debt_id,
     'paid_amount', v_new_paid,
     'remaining', v_debt.total_amount - v_new_paid,
-    'completed', v_new_paid >= v_debt.total_amount
+    'completed', v_new_paid >= v_debt.total_amount,
+    'transaction_id', v_txn_id
   );
 END;
 $$;
+
+
 
 CREATE OR REPLACE FUNCTION rpc_update_debt(
   p_debt_id UUID,
@@ -956,27 +1199,39 @@ CREATE OR REPLACE FUNCTION rpc_update_debt(
   p_monthly_payment NUMERIC DEFAULT NULL,
   p_interest_rate NUMERIC DEFAULT NULL,
   p_start_date DATE DEFAULT NULL,
-  p_category TEXT DEFAULT NULL,
+  p_category_id UUID DEFAULT NULL,          -- ← NUEVO: category_id
   p_notes TEXT DEFAULT NULL,
   p_is_active BOOLEAN DEFAULT NULL,
-  p_linked_account_id UUID DEFAULT NULL   -- ✔ AGREGADO
+  p_linked_account_id UUID DEFAULT NULL     -- ✔ ya existía
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_d debts;
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_d debts;
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
 
-  UPDATE debts SET
-    name = COALESCE(p_name, name),
-    total_amount = COALESCE(p_total_amount, total_amount),
-    monthly_payment = COALESCE(p_monthly_payment, monthly_payment),
-    interest_rate = COALESCE(p_interest_rate, interest_rate),
-    start_date = COALESCE(p_start_date, start_date),
-    category = COALESCE(p_category, category),
-    notes = COALESCE(p_notes, notes),
-    linked_account_id = COALESCE(p_linked_account_id, linked_account_id),  -- ✔ AGREGADO
-    is_active = COALESCE(p_is_active, is_active),
-    updated_at = NOW()
+  --------------------------------------------------------------------
+  -- Actualizar deuda
+  -- YA NO se usa la columna "category"
+  -- Ahora se usa "category_id"
+  --------------------------------------------------------------------
+  UPDATE debts
+  SET
+    name              = COALESCE(p_name, name),
+    total_amount      = COALESCE(p_total_amount, total_amount),
+    monthly_payment   = COALESCE(p_monthly_payment, monthly_payment),
+    interest_rate     = COALESCE(p_interest_rate, interest_rate),
+    start_date        = COALESCE(p_start_date, start_date),
+    category_id       = COALESCE(p_category_id, category_id),   -- ← NUEVO
+    notes             = COALESCE(p_notes, notes),
+    linked_account_id = COALESCE(p_linked_account_id, linked_account_id),
+    is_active         = COALESCE(p_is_active, is_active),
+    updated_at        = NOW()
   WHERE id = p_debt_id
     AND family_id = auth_family_id()
     AND (created_by = auth.uid() OR auth_is_admin())
@@ -990,100 +1245,315 @@ BEGIN
 END;
 $$;
 
+
 -- ── Recurrentes ───────────────────────────────────────────────
 -- rpc_mark_recurring_paid: marca pagado y abona a deuda si está vinculada
-CREATE OR REPLACE FUNCTION rpc_mark_recurring_paid(p_rec_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
+CREATE OR REPLACE FUNCTION rpc_mark_recurring_paid(
+  p_rec_id UUID,
+  p_amount NUMERIC,
+  p_date DATE DEFAULT CURRENT_DATE
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
-  v_rec recurring_payments; v_next DATE; v_txn_id UUID; v_fid UUID := auth_family_id();
+  v_rec recurring_payments;
+  v_next DATE;
+  v_txn_id UUID;
+  v_fid UUID := auth_family_id();
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
-  SELECT * INTO v_rec FROM recurring_payments WHERE id=p_rec_id AND family_id=v_fid AND is_active=TRUE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'No encontrado'; END IF;
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
 
+  -- Obtener el pago recurrente
+  SELECT *
+  INTO v_rec
+  FROM recurring_payments
+  WHERE id = p_rec_id
+    AND family_id = v_fid
+    AND is_active = TRUE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No encontrado';
+  END IF;
+
+  -- Calcular próxima fecha
   v_next := CASE v_rec.frequency
     WHEN 'weekly'   THEN v_rec.next_due + INTERVAL '7 days'
     WHEN 'biweekly' THEN v_rec.next_due + INTERVAL '14 days'
     WHEN 'monthly'  THEN v_rec.next_due + INTERVAL '1 month'
     WHEN 'yearly'   THEN v_rec.next_due + INTERVAL '1 year'
-    ELSE v_rec.next_due + INTERVAL '1 month' END;
+    ELSE v_rec.next_due + INTERVAL '1 month'
+  END;
 
-  UPDATE recurring_payments SET next_due=v_next, updated_at=NOW() WHERE id=p_rec_id;
+  -- Actualizar próxima fecha
+  UPDATE recurring_payments
+  SET next_due = v_next,
+      updated_at = NOW()
+  WHERE id = p_rec_id;
 
+  --------------------------------------------------------------------
   -- Crear transacción automática (idempotente)
-  IF NOT EXISTS(
-    SELECT 1 FROM transactions
-    WHERE source_id=p_rec_id AND auto_source='recurring' AND date=p_date AND family_id=v_fid AND NOT is_void
+  -- YA NO USA type NI category
+  -- category_id viene desde recurring_payments.category_id
+  --------------------------------------------------------------------
+  IF NOT EXISTS (
+    SELECT 1
+    FROM transactions
+    WHERE source_id = p_rec_id
+      AND auto_source = 'recurring'
+      AND date = p_date
+      AND family_id = v_fid
+      AND NOT is_void
   ) THEN
-    INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,auto_source,source_id)
-    VALUES (v_fid,auth.uid(),'expense',v_rec.category,'Pago: '||v_rec.name,p_amount,p_date,v_rec.account_id,'recurring',p_rec_id)
+    INSERT INTO transactions (
+      family_id,
+      created_by,
+      category_id,
+      description,
+      amount,
+      date,
+      account_id,
+      auto_source,
+      source_id
+    )
+    VALUES (
+      v_fid,
+      auth.uid(),
+      v_rec.category_id,                     -- ← categoría REAL desde tabla categories
+      'Pago: ' || v_rec.name,
+      p_amount,
+      p_date,
+      v_rec.account_id,
+      'recurring',
+      p_rec_id
+    )
     RETURNING id INTO v_txn_id;
   END IF;
 
-  -- Si tiene deuda vinculada, abonar automáticamente
+  --------------------------------------------------------------------
+  -- Si está vinculado a una deuda → abonar automáticamente
+  --------------------------------------------------------------------
   IF v_rec.linked_debt_id IS NOT NULL THEN
     PERFORM rpc_pay_debt(v_rec.linked_debt_id, p_amount, p_date);
   END IF;
 
-  RETURN json_build_object('recurring_id',p_rec_id,'next_due',v_next,'transaction_id',v_txn_id,'debt_abonado',v_rec.linked_debt_id IS NOT NULL);
+  --------------------------------------------------------------------
+  -- Respuesta final
+  --------------------------------------------------------------------
+  RETURN json_build_object(
+    'recurring_id', p_rec_id,
+    'next_due', v_next,
+    'transaction_id', v_txn_id,
+    'debt_abonado', v_rec.linked_debt_id IS NOT NULL
+  );
 END;
 $$;
 
+
 CREATE OR REPLACE FUNCTION rpc_update_recurring(
-  p_rec_id UUID, p_name TEXT DEFAULT NULL, p_amount NUMERIC DEFAULT NULL,
-  p_frequency freq_type DEFAULT NULL, p_category TEXT DEFAULT NULL,
-  p_account_id UUID DEFAULT NULL, p_linked_debt_id UUID DEFAULT NULL,
-  p_next_due DATE DEFAULT NULL, p_notes TEXT DEFAULT NULL,
-  p_is_active BOOLEAN DEFAULT NULL, p_clear_debt BOOLEAN DEFAULT FALSE
+  p_rec_id UUID,
+  p_name TEXT DEFAULT NULL,
+  p_amount NUMERIC DEFAULT NULL,
+  p_frequency freq_type DEFAULT NULL,
+  p_category_id UUID DEFAULT NULL,          -- ← NUEVO: category_id
+  p_account_id UUID DEFAULT NULL,
+  p_linked_debt_id UUID DEFAULT NULL,
+  p_next_due DATE DEFAULT NULL,
+  p_notes TEXT DEFAULT NULL,
+  p_is_active BOOLEAN DEFAULT NULL,
+  p_clear_debt BOOLEAN DEFAULT FALSE
 )
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_r recurring_payments;
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_r recurring_payments;
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
-  UPDATE recurring_payments SET
-    name=COALESCE(p_name,name), amount=COALESCE(p_amount,amount),
-    frequency=COALESCE(p_frequency,frequency), category=COALESCE(p_category,category),
-    account_id=COALESCE(p_account_id,account_id),
-    linked_debt_id=CASE WHEN p_clear_debt THEN NULL ELSE COALESCE(p_linked_debt_id,linked_debt_id) END,
-    next_due=COALESCE(p_next_due,next_due), notes=COALESCE(p_notes,notes),
-    is_active=COALESCE(p_is_active,is_active), updated_at=NOW()
-  WHERE id=p_rec_id AND family_id=auth_family_id() AND (created_by=auth.uid() OR auth_is_admin())
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
+
+  --------------------------------------------------------------------
+  -- Actualizar el pago recurrente
+  -- YA NO se usa la columna "category"
+  -- Ahora se usa "category_id"
+  --------------------------------------------------------------------
+  UPDATE recurring_payments
+  SET
+    name            = COALESCE(p_name, name),
+    amount          = COALESCE(p_amount, amount),
+    frequency       = COALESCE(p_frequency, frequency),
+    category_id     = COALESCE(p_category_id, category_id),   -- ← NUEVO
+    account_id      = COALESCE(p_account_id, account_id),
+    linked_debt_id  = CASE
+                        WHEN p_clear_debt THEN NULL
+                        ELSE COALESCE(p_linked_debt_id, linked_debt_id)
+                      END,
+    next_due        = COALESCE(p_next_due, next_due),
+    notes           = COALESCE(p_notes, notes),
+    is_active       = COALESCE(p_is_active, is_active),
+    updated_at      = NOW()
+  WHERE id = p_rec_id
+    AND family_id = auth_family_id()
+    AND (created_by = auth.uid() OR auth_is_admin())
   RETURNING * INTO v_r;
-  IF NOT FOUND THEN RAISE EXCEPTION 'No encontrado o sin permiso'; END IF;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'No encontrado o sin permiso';
+  END IF;
+
   RETURN row_to_json(v_r);
 END;
 $$;
 
+
 -- ── Metas ─────────────────────────────────────────────────────
-CREATE OR REPLACE FUNCTION rpc_deposit_savings_goal(p_goal_id UUID, p_amount NUMERIC, p_date DATE DEFAULT CURRENT_DATE, p_account_id UUID DEFAULT NULL, p_from_account_id UUID DEFAULT NULL)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_g savings_goals; v_new NUMERIC; v_txn_from UUID; v_txn_to UUID; v_dest UUID;
+CREATE OR REPLACE FUNCTION rpc_deposit_savings_goal(
+  p_goal_id UUID,
+  p_amount NUMERIC,
+  p_date DATE DEFAULT CURRENT_DATE,
+  p_account_id UUID DEFAULT NULL,
+  p_from_account_id UUID DEFAULT NULL
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_g savings_goals;
+  v_new NUMERIC;
+  v_txn_from UUID;
+  v_txn_to UUID;
+  v_dest UUID;
 BEGIN
-  IF auth_is_kid() THEN RAISE EXCEPTION 'No autorizado'; END IF;
-  IF p_amount<=0 THEN RAISE EXCEPTION 'Monto inválido'; END IF;
-  SELECT * INTO v_g FROM savings_goals WHERE id=p_goal_id AND family_id=auth_family_id();
-  IF NOT FOUND THEN RAISE EXCEPTION 'Meta no encontrada'; END IF;
-  IF v_g.status='completed' THEN RAISE EXCEPTION 'Meta ya completada'; END IF;
+  IF auth_is_kid() THEN
+    RAISE EXCEPTION 'No autorizado';
+  END IF;
+
+  IF p_amount <= 0 THEN
+    RAISE EXCEPTION 'Monto inválido';
+  END IF;
+
+  -- Obtener meta
+  SELECT * INTO v_g
+  FROM savings_goals
+  WHERE id = p_goal_id
+    AND family_id = auth_family_id();
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Meta no encontrada';
+  END IF;
+
+  IF v_g.status = 'completed' THEN
+    RAISE EXCEPTION 'Meta ya completada';
+  END IF;
+
+  -- Cuenta destino
   v_dest := COALESCE(p_account_id, v_g.account_id);
+
+  -- Validar cuenta origen
   IF p_from_account_id IS NOT NULL THEN
-    IF p_from_account_id = v_dest THEN RAISE EXCEPTION 'Cuenta origen y destino no pueden ser la misma'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM accounts WHERE id=p_from_account_id AND family_id=auth_family_id() AND is_active=TRUE) THEN
+    IF p_from_account_id = v_dest THEN
+      RAISE EXCEPTION 'Cuenta origen y destino no pueden ser la misma';
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM accounts
+      WHERE id = p_from_account_id
+        AND family_id = auth_family_id()
+        AND is_active = TRUE
+    ) THEN
       RAISE EXCEPTION 'Cuenta de origen no encontrada';
     END IF;
   END IF;
+
+  -- Actualizar progreso de la meta
   v_new := LEAST(v_g.target_amount, v_g.current_amount + p_amount);
-  UPDATE savings_goals SET current_amount=v_new, updated_at=NOW() WHERE id=p_goal_id;
+
+  UPDATE savings_goals
+  SET current_amount = v_new,
+      updated_at = NOW()
+  WHERE id = p_goal_id;
+
+  ----------------------------------------------------------------------
+  -- TRANSACCIÓN DE SALIDA (expense) — si hay cuenta origen
+  -- Ya NO usa type/category → solo category_id + auto_source
+  ----------------------------------------------------------------------
   IF p_from_account_id IS NOT NULL THEN
-    INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id)
-    VALUES (auth_family_id(),auth.uid(),'expense','transfer_to_saving','Transferencia a ahorro: '||v_g.name,p_amount,p_date,p_from_account_id,NULL,'savings_deposit',p_goal_id)
+    INSERT INTO transactions (
+      family_id,
+      created_by,
+      category_id,
+      description,
+      amount,
+      date,
+      account_id,
+      notes,
+      auto_source,
+      source_id
+    )
+    VALUES (
+      auth_family_id(),
+      auth.uid(),
+      NULL,  -- categoría se resolverá por auto_source en la vista
+      'Transferencia a ahorro: ' || v_g.name,
+      p_amount,
+      p_date,
+      p_from_account_id,
+      NULL,
+      'savings_deposit',
+      p_goal_id
+    )
     RETURNING id INTO v_txn_from;
   END IF;
-  INSERT INTO transactions(family_id,created_by,type,category,description,amount,date,account_id,notes,auto_source,source_id)
-  VALUES (auth_family_id(),auth.uid(),'saving','goal','Ahorro: '||v_g.name,p_amount,p_date,v_dest,NULL,'savings_deposit',p_from_account_id)
+
+  ----------------------------------------------------------------------
+  -- TRANSACCIÓN DE ENTRADA (saving)
+  -- Ya NO usa type/category → category_id NULL y auto_source define el tipo
+  ----------------------------------------------------------------------
+  INSERT INTO transactions (
+    family_id,
+    created_by,
+    category_id,
+    description,
+    amount,
+    date,
+    account_id,
+    notes,
+    auto_source,
+    source_id
+  )
+  VALUES (
+    auth_family_id(),
+    auth.uid(),
+    NULL,  -- categoría se resolverá en la vista
+    'Ahorro: ' || v_g.name,
+    p_amount,
+    p_date,
+    v_dest,
+    NULL,
+    'savings_deposit',
+    p_goal_id
+  )
   RETURNING id INTO v_txn_to;
-  RETURN json_build_object('goal_id',p_goal_id,'new_amount',v_new,'completed',v_new>=v_g.target_amount,'transaction_id',v_txn_to,'from_transaction_id',v_txn_from);
+
+  ----------------------------------------------------------------------
+  -- RESPUESTA
+  ----------------------------------------------------------------------
+  RETURN json_build_object(
+    'goal_id', p_goal_id,
+    'new_amount', v_new,
+    'completed', v_new >= v_g.target_amount,
+    'transaction_id', v_txn_to,
+    'from_transaction_id', v_txn_from
+  );
 END;
 $$;
+
 
 CREATE OR REPLACE FUNCTION rpc_update_savings_goal(
   p_goal_id UUID, p_name TEXT DEFAULT NULL, p_target_amount NUMERIC DEFAULT NULL,
@@ -1151,23 +1621,89 @@ BEGIN
 END;
 $$;
 
--- ── Dashboard summary ─────────────────────────────────────────
-CREATE OR REPLACE FUNCTION rpc_dashboard_summary(p_from DATE, p_to DATE, p_account_id UUID DEFAULT NULL)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+CREATE OR REPLACE FUNCTION rpc_dashboard_summary(
+  p_from DATE,
+  p_to DATE,
+  p_account_id UUID DEFAULT NULL
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
 DECLARE
   v_fid UUID := auth_family_id();
-  v_income NUMERIC; v_expense NUMERIC; v_saving NUMERIC; 
-  v_pie JSON; v_trend JSON;
+  v_income NUMERIC;
+  v_expense NUMERIC;
+  v_saving NUMERIC;
+  v_pie JSON;
+  v_trend JSON;
 BEGIN
-  IF auth_status()!='active' THEN RAISE EXCEPTION 'Cuenta pendiente'; END IF;
+  IF auth_status() <> 'active' THEN
+    RAISE EXCEPTION 'Cuenta pendiente';
+  END IF;
+
+  -- INGRESOS / GASTOS / AHORROS
   SELECT
-    COALESCE(SUM(amount) FILTER(WHERE type='income' AND category <> 'credit_card_payment'),0),
-    COALESCE(SUM(amount) FILTER(WHERE type='expense' AND category <> 'credit_card_payment'),0),
-    COALESCE(SUM(amount) FILTER(WHERE type='saving'),0)
+    COALESCE(SUM(amount) FILTER (WHERE type = 'income' AND category_key <> 'credit_card_payment'), 0),
+    COALESCE(SUM(amount) FILTER (WHERE type = 'expense' AND category_key <> 'credit_card_payment'), 0),
+    COALESCE(SUM(amount) FILTER (WHERE type = 'saving'), 0)
   INTO v_income, v_expense, v_saving
-  FROM transactions
-  WHERE family_id=v_fid AND date BETWEEN p_from AND p_to AND NOT is_void
-  AND (p_account_id IS NULL OR account_id=p_account_id);
+  FROM transactions_with_category
+  WHERE family_id = v_fid
+    AND date BETWEEN p_from AND p_to
+    AND NOT is_void
+    AND (p_account_id IS NULL OR account_id = p_account_id);
+
+  -- PIE CHART (solo gastos por categoría)
+  SELECT json_agg(row_to_json(t))
+  INTO v_pie
+  FROM (
+    SELECT
+      category_key AS category,
+      SUM(amount) AS value
+    FROM transactions_with_category
+    WHERE family_id = v_fid
+      AND type = 'expense'
+      AND category_key <> 'credit_card_payment'
+      AND date BETWEEN p_from AND p_to
+      AND NOT is_void
+      AND (p_account_id IS NULL OR account_id = p_account_id)
+    GROUP BY category_key
+    ORDER BY value DESC
+    LIMIT 12
+  ) t;
+
+  -- TREND MENSUAL (últimos 7 meses)
+  SELECT json_agg(row_to_json(t))
+  INTO v_trend
+  FROM (
+    SELECT
+      TO_CHAR(DATE_TRUNC('month', date), 'YYYY-MM') AS month,
+      COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0) AS income,
+      COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0) AS expense,
+      COALESCE(SUM(amount) FILTER (WHERE type = 'saving'), 0) AS saving
+    FROM transactions_with_category
+    WHERE family_id = v_fid
+      AND NOT is_void
+      AND date >= DATE_TRUNC('month', NOW()) - INTERVAL '7 months'
+      AND (p_account_id IS NULL OR account_id = p_account_id)
+    GROUP BY 1
+    ORDER BY 1
+  ) t;
+
+  RETURN json_build_object(
+    'income', v_income,
+    'expense', v_expense,
+    'saving', v_saving,
+    'balance', v_income - v_expense - v_saving,
+    'savings_rate',
+      CASE WHEN v_income > 0 THEN ROUND((v_saving / v_income) * 100, 1) ELSE 0 END,
+    'by_category', COALESCE(v_pie, '[]'::JSON),
+    'monthly_trend', COALESCE(v_trend, '[]'::JSON)
+  );
+END;
+$$;
 
   -- GASTOS POR CATEGORÍA (EXCLUYENDO PAGOS DE TARJETA)
   SELECT json_agg(row_to_json(t)) INTO v_pie FROM (
@@ -1203,75 +1739,118 @@ BEGIN
 END;
 $$;
 
--- ── Patrimonio neto ───────────────────────────────────────────
--- ACTUALIZADO v4: separa correctamente activos y pasivos
--- Activos: saldo de cuentas checking/savings/investment/cash
--- Pasivos crédito: deuda acumulada en credit_card/credit_line (mes actual)
--- Pasivos largo plazo: deudas (hipoteca, auto, etc.)
-CREATE OR REPLACE FUNCTION rpc_net_worth_filtered(p_from DATE, p_to DATE, p_account_id UUID DEFAULT NULL)
-RETURNS JSON LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+CREATE OR REPLACE FUNCTION rpc_net_worth_filtered(
+  p_from DATE,
+  p_to DATE,
+  p_account_id UUID DEFAULT NULL
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+AS $$
 DECLARE
   v_fid UUID := auth_family_id();
-  v_assets NUMERIC; v_credit_debt NUMERIC; v_long_debt NUMERIC;
+  v_assets NUMERIC;
+  v_credit_debt NUMERIC;
+  v_long_debt NUMERIC;
 BEGIN
-  -- Activos: saldo de cuentas de débito/ahorro/inversión/efectivo
+  IF auth_status() <> 'active' THEN
+    RAISE EXCEPTION 'Cuenta pendiente';
+  END IF;
+
+  ----------------------------------------------------------------------
+  -- ACTIVOS: cuentas checking/savings/investment/cash
+  -- Fórmula:
+  -- opening_balance
+  -- + ingresos
+  -- - gastos
+  -- - ahorros
+  ----------------------------------------------------------------------
   SELECT COALESCE(SUM(
     a.opening_balance
-    + COALESCE((SELECT SUM(amount) 
-                FROM transactions
-                WHERE account_id=a.id
-                  AND type='income'
-                  AND category <> 'credit_card_payment'
-                  AND NOT is_void),0)
-    - COALESCE((SELECT SUM(amount)
-                FROM transactions
-                WHERE account_id=a.id
-                  AND type='expense'
-                  AND category <> 'credit_card_payment'
-                  AND NOT is_void),0)
-    - COALESCE((SELECT SUM(amount)
-                FROM transactions
-                WHERE account_id=a.id
-                  AND type='saving'
-                  AND NOT is_void),0)
-  ),0)
+    + COALESCE((
+        SELECT SUM(amount)
+        FROM transactions_with_category twc
+        WHERE twc.account_id = a.id
+          AND twc.type = 'income'
+          AND twc.category_key <> 'credit_card_payment'
+          AND NOT twc.is_void
+      ), 0)
+    - COALESCE((
+        SELECT SUM(amount)
+        FROM transactions_with_category twc
+        WHERE twc.account_id = a.id
+          AND twc.type = 'expense'
+          AND twc.category_key <> 'credit_card_payment'
+          AND NOT twc.is_void
+      ), 0)
+    - COALESCE((
+        SELECT SUM(amount)
+        FROM transactions_with_category twc
+        WHERE twc.account_id = a.id
+          AND twc.type = 'saving'
+          AND NOT twc.is_void
+      ), 0)
+  ), 0)
   INTO v_assets
   FROM accounts a
-  WHERE a.family_id=v_fid AND a.subtype IN ('checking','savings','investment','cash') AND a.is_active=TRUE
-  AND (p_account_id IS NULL OR a.id = p_account_id);
+  WHERE a.family_id = v_fid
+    AND a.subtype IN ('checking','savings','investment','cash')
+    AND a.is_active = TRUE
+    AND (p_account_id IS NULL OR a.id = p_account_id);
 
-  -- Pasivos de corto plazo: deuda acumulada en tarjetas/líneas de crédito
-  -- TARJETAS (deuda real = gastos - pagos)
+  ----------------------------------------------------------------------
+  -- PASIVOS DE CORTO PLAZO: tarjetas / líneas de crédito
+  -- Fórmula:
+  -- total_gastos - total_pagos
+  ----------------------------------------------------------------------
   SELECT COALESCE(SUM(
-    COALESCE((SELECT SUM(amount)
-              FROM transactions
-              WHERE account_id=a.id
-                AND type='expense'
-                AND NOT is_void),0)
+    COALESCE((
+      SELECT SUM(amount)
+      FROM transactions_with_category twc
+      WHERE twc.account_id = a.id
+        AND twc.type = 'expense'
+        AND NOT twc.is_void
+    ), 0)
     -
-    COALESCE((SELECT SUM(amount)
-              FROM transactions
-              WHERE account_id=a.id
-                AND type='income'
-                AND NOT is_void),0)
-  ),0) INTO v_credit_debt
+    COALESCE((
+      SELECT SUM(amount)
+      FROM transactions_with_category twc
+      WHERE twc.account_id = a.id
+        AND twc.type = 'income'
+        AND NOT twc.is_void
+    ), 0)
+  ), 0)
+  INTO v_credit_debt
   FROM accounts a
-  WHERE a.family_id=v_fid AND a.subtype IN ('credit_card','credit_line') AND a.is_active=TRUE
-  AND (p_account_id IS NULL OR a.id = p_account_id);
+  WHERE a.family_id = v_fid
+    AND a.subtype IN ('credit_card','credit_line')
+    AND a.is_active = TRUE
+    AND (p_account_id IS NULL OR a.id = p_account_id);
 
-  -- Pasivos de largo plazo: saldo restante de deudas (hipoteca, autos)
-  SELECT COALESCE(SUM(total_amount-paid_amount),0) INTO v_long_debt
-  FROM debts WHERE family_id=v_fid AND is_active=TRUE;
+  ----------------------------------------------------------------------
+  -- PASIVOS DE LARGO PLAZO: deudas activas (hipoteca, autos, etc.)
+  ----------------------------------------------------------------------
+  SELECT COALESCE(SUM(total_amount - paid_amount), 0)
+  INTO v_long_debt
+  FROM debts
+  WHERE family_id = v_fid
+    AND is_active = TRUE;
 
+  ----------------------------------------------------------------------
+  -- RESULTADO FINAL
+  ----------------------------------------------------------------------
   RETURN json_build_object(
-    'assets',     v_assets,
-    'credit_debt',v_credit_debt,
-    'long_debt',  v_long_debt,
-    'liabilities',v_credit_debt + v_long_debt,
-    'net',        v_assets - v_credit_debt - v_long_debt
+    'assets',       v_assets,
+    'credit_debt',  v_credit_debt,
+    'long_debt',    v_long_debt,
+    'liabilities',  v_credit_debt + v_long_debt,
+    'net',          v_assets - v_credit_debt - v_long_debt
   );
 END;
 $$;
+
 
 -- ── AI Context ────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION rpc_ai_financial_context(p_months_back INT DEFAULT 6)
@@ -1468,26 +2047,48 @@ COMMENT ON VIEW account_balances IS
    available:  crédito disponible = limit - month_debt
    is_credit:  true si es tarjeta o línea de crédito';
 
+
 -- Vista de pagos recurrentes con info de cuenta y deuda
-CREATE OR REPLACE VIEW recurring_with_details  WITH (security_invoker = on) AS
+CREATE OR REPLACE VIEW recurring_with_details
+WITH (security_invoker = on) AS
 SELECT
   r.*,
+
+  -- Datos de la categoría (solo desde categories)
+  c.key AS category_key,
+  c.type AS category_type,
+  c.label_es AS category_label_es,
+  c.label_en AS category_label_en,
+  c.label_fr AS category_label_fr,
+  c.color AS category_color,
+
+  -- Datos de la cuenta asociada
   a.name AS account_name,
   a.subtype AS account_subtype,
   a.color AS account_color,
   a.last_four AS account_last_four,
+
+  -- Datos de la deuda vinculada
   d.name AS linked_debt_name,
   d.total_amount - d.paid_amount AS linked_debt_remaining,
+
+  -- Cálculo de vencimiento
   (r.next_due - CURRENT_DATE) AS days_until_due,
   CASE
     WHEN r.next_due < CURRENT_DATE THEN 'overdue'
     WHEN r.next_due <= CURRENT_DATE + 5 THEN 'due_soon'
     ELSE 'up_to_date'
   END AS status_label
+
 FROM recurring_payments r
-LEFT JOIN accounts a ON a.id = r.account_id
-LEFT JOIN debts d ON d.id = r.linked_debt_id
+LEFT JOIN categories c
+  ON r.category_id = c.id
+LEFT JOIN accounts a
+  ON a.id = r.account_id
+LEFT JOIN debts d
+  ON d.id = r.linked_debt_id
 WHERE r.is_active = TRUE;
+
 
 -- Vista de límites por plan
 CREATE OR REPLACE VIEW plan_limits  WITH (security_invoker = on) AS

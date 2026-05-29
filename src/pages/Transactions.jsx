@@ -47,7 +47,8 @@ export default function Transactions() {
 
   const visible = filterType === 'all'
     ? filteredTxns
-    : filteredTxns.filter(tx => tx.type === filterType)
+    : filteredTxns.filter(tx => tx.category_type === filterType)
+
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -70,10 +71,10 @@ export default function Transactions() {
           ))}
         </div>
 
-       {/* acciones */} 
-        
+        {/* acciones */}
+
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <CsvImportButton />
+          {/* <CsvImportButton /> */}
           <CsvExportButton txns={txns} />
           <Btn size="sm" variant="primary" onClick={() => openModal('tx')}>
             + {t.addTransaction}
@@ -136,11 +137,12 @@ function TxRow({ tx, isLast, onEdit, confirmDelete, onDeleteRequest, onCancelDel
   const subCfg = account ? ACCOUNT_SUBTYPES[account.subtype] : null
 
   // Color semántico del monto
-  const amtColor = { income: 'var(--green)', expense: 'var(--red)', saving: 'var(--purple)' }[tx.type] || 'var(--text)'
-  const sign = tx.type === 'income' || tx.type === 'saving' ? '+' : '-'
+  const amtColor = { income: 'var(--green)', expense: 'var(--red)', saving: 'var(--purple)', payment: 'var(--blue)'}[tx.category_type] || 'var(--text)'
+  const sign = ['income', 'saving', 'payment'].includes(tx.category_type) ? '+' : '-'
+  const bgByType = { income: '#2dd4a012', expense: '#ff6b6b12', saving: '#a78bfa12', payment: '#3b82f612', }
 
   // Ícono de tipo de transacción
-  const typeIcon = { income: '↑', expense: '↓', saving: '◎', transfer: '↔' }[tx.type] || '·'
+  const typeIcon = {  income: '↑',   expense: '↓',   saving: '◎',   payment: '💳', }[tx.category_type] || '·'
 
   const handleDelete = async () => {
     await deleteTxn(tx.id)
@@ -168,7 +170,7 @@ function TxRow({ tx, isLast, onEdit, confirmDelete, onDeleteRequest, onCancelDel
             width: 32, height: 32, borderRadius: 'var(--radius-sm)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 14, flexShrink: 0,
-            background: tx.type === 'income' ? '#2dd4a012' : tx.type === 'expense' ? '#ff6b6b12' : tx.type === 'saving' ? '#a78bfa12' : 'var(--surface)',
+            background: bgByType[tx.category_type] || 'var(--surface)',
           }}>
             {typeIcon}
           </div>
@@ -186,11 +188,11 @@ function TxRow({ tx, isLast, onEdit, confirmDelete, onDeleteRequest, onCancelDel
                 fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '1px 6px',
                 background: amtColor + '14', color: amtColor,
               }}>
-                {t[tx.type]}
+                {t[tx.category_type]}
               </span>
               {/* Categoría */}
               <span style={{ fontSize: 10, color: 'var(--muted)' }}>
-                {t.cats?.[tx.category] || tx.category}
+                {tx.category_label_es || tx.category_key}
               </span>
               {/* Fecha */}
               <span style={{ fontSize: 10, color: 'var(--muted)' }}>{tx.date}</span>

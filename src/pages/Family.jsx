@@ -32,8 +32,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
-import { Card, Btn, SectionHeader, ProgressBar } from '../components/ui/index'
-import { PLAN_COLORS, fmt, pct } from '../lib/constants'
+import { Card, Btn, SectionHeader, ProgressBar, Field, Input, Select, Modal, ModalFooter, ColorPicker } from '../components/ui/index'
+import { PLAN_COLORS, fmt, pct, ACC_COLORS } from '../lib/constants'
 
 const STATUS_META = {
   active: { color: 'var(--green)', bg: 'var(--green)18', label: 'Activo', icon: '✓' },
@@ -50,7 +50,7 @@ const ROLE_LABEL = {
 
 export default function Family() {
   const {
-    t, family, members, profile,
+    t, family, members, profile, customCategories,
     isFamilyAdmin, pendingMembers,
     setMemberStatus, setMemberRole,
     modal, openModal, closeModal
@@ -61,7 +61,10 @@ export default function Family() {
   const TABS = [
     { id: 'members', label: `👥 Miembros (${members.length})` },
     { id: 'plans', label: '📋 Planes' },
+    { id: 'categories', label: '🏷️ Categorías' },
   ]
+
+  console.log('customCategories en Family.jsx:', customCategories)  // Debug: Ver categorías personalizadas
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -120,11 +123,10 @@ export default function Family() {
           memberCount={members.filter(m => m.status === 'active').length}
         />
       )}
+      {activeTab === 'categories' && (
+        <CategoriesSection categories={customCategories} />
+      )}
 
-      {/* Modal unificado de cuenta — v4
-      {modal === 'account' && (
-        <AccountModal onClose={closeModal} />
-      )} */}
     </div>
   )
 }
@@ -406,6 +408,297 @@ function PlansSection({ currentPlan, memberCount }) {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ── CategoriesSection ─────────────────────────────────────────────────────────
+function CategoriesSection({ categories }) {
+  const { t, addCategory, editCategory, deleteCategory, isFamilyAdmin } = useApp()
+  
+  const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [f, setF] = useState({
+    key: '',
+    type: 'expense',
+    label_es: '',
+    label_en: '',
+    label_fr: '',
+    color: '#94a3b8',
+  })
+
+  // Agrupar categorías por tipo
+  const categoriesByType = {
+    income: categories.filter(c => c.type === 'income'),
+    expense: categories.filter(c => c.type === 'expense'),
+    saving: categories.filter(c => c.type === 'saving'),
+  }
+
+  const typeLabels = {
+    income: '💰 Ingresos',
+    expense: '💸 Gastos',
+    saving: '💵 Ahorros',
+  }
+
+  const set = (k, v) => {
+    setError('')
+    setF(prev => ({ ...prev, [k]: v }))
+  }
+
+  const resetForm = () => {
+    setF({
+      key: '',
+      type: 'expense',
+      label_es: '',
+      label_en: '',
+      label_fr: '',
+      color: '#94a3b8',
+    })
+    setEditingId(null)
+    setShowForm(false)
+    setError('')
+  }
+
+  const handleEdit = (cat) => {
+    setF({
+      key: cat.key,
+      type: cat.type,
+      label_es: cat.label_es || '',
+      label_en: cat.label_en || '',
+      label_fr: cat.label_fr || '',
+      color: cat.color,
+    })
+    setEditingId(cat.id)
+    setShowForm(true)
+  }
+
+  const handleSave = async () => {
+    // Validar campos requeridos
+    if (!f.key.trim()) {
+      setError('El identificador (key) es requerido')
+      return
+    }
+    if (!f.label_es.trim()) {
+      setError('La etiqueta en español es requerida')
+      return
+    }
+
+    setSaving(true)
+    try {
+      let result
+      if (editingId) {
+        result = await editCategory(editingId, f)
+      } else {
+        result = await addCategory(f)
+      }
+
+      if (result.error) {
+        setError(result.error.message || 'Error al guardar la categoría')
+      } else {
+        resetForm()
+      }
+    } catch (err) {
+      setError(err.message || 'Error desconocido')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('¿Eliminar esta categoría? No podrás deshacer esta acción.')) return
+    const result = await deleteCategory(id)
+    if (result.error) {
+      setError(result.error.message || 'Error al eliminar')
+    }
+  }
+
+  if (!isFamilyAdmin) {
+    return (
+      <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)' }}>
+        Solo los administradores pueden gestionar categorías
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div className="h3">Categorías personalizadas</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+            Crea categorías adaptadas a tu familia
+          </div>
+        </div>
+        <Btn variant="primary" onClick={() => setShowForm(true)}>
+          ＋ Nueva categoría
+        </Btn>
+      </div>
+
+      {/* Form */}
+      {showForm && (
+        <Card>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="lbl" style={{ marginBottom: 4 }}>
+              {editingId ? '✎ Editar categoría' : '＋ Nueva categoría'}
+            </div>
+
+            {/* Rows: Key + Type */}
+            <div className="g2">
+              <Field label="Identificador *">
+                <Input
+                  value={f.key}
+                  onChange={e => set('key', e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                  placeholder="viajes, comida, etc."
+                  disabled={!!editingId}
+                  style={{ fontSize: 13 }}
+                />
+              </Field>
+              <Field label="Tipo *">
+                <Select
+                  value={f.type}
+                  onChange={e => set('type', e.target.value)}
+                >
+                  <option value="income">Ingreso</option>
+                  <option value="expense">Gasto</option>
+                  <option value="saving">Ahorro</option>
+                </Select>
+              </Field>
+            </div>
+
+            {/* Labels */}
+            <div className="g3">
+              <Field label="Etiqueta ES *">
+                <Input
+                  value={f.label_es}
+                  onChange={e => set('label_es', e.target.value)}
+                  placeholder="Viajes"
+                />
+              </Field>
+              <Field label="Etiqueta EN">
+                <Input
+                  value={f.label_en}
+                  onChange={e => set('label_en', e.target.value)}
+                  placeholder="Travel"
+                />
+              </Field>
+              <Field label="Etiqueta FR">
+                <Input
+                  value={f.label_fr}
+                  onChange={e => set('label_fr', e.target.value)}
+                  placeholder="Voyages"
+                />
+              </Field>
+            </div>
+
+            {/* Color */}
+            <Field label="Color">
+              <ColorPicker colors={ACC_COLORS} selected={f.color} onChange={c => set('color', c)} />
+            </Field>
+
+            {/* Error */}
+            {error && (
+              <div style={{
+                background: 'var(--red)10',
+                border: '1px solid var(--red)33',
+                borderRadius: 8,
+                padding: '8px 12px',
+                color: 'var(--red)',
+                fontSize: 12,
+              }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <Btn variant="ghost" onClick={resetForm} style={{ flex: 1 }}>
+                Cancelar
+              </Btn>
+              <Btn
+                variant="primary"
+                onClick={handleSave}
+                disabled={saving || !f.key.trim() || !f.label_es.trim()}
+                style={{ flex: 2 }}
+              >
+                {saving ? 'Guardando...' : editingId ? 'Actualizar' : 'Crear'}
+              </Btn>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Lista de categorías por tipo */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {Object.entries(categoriesByType).map(([type, cats]) => (
+          <div key={type}>
+            <div className="lbl" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {typeLabels[type]}
+              <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>
+                ({cats.length})
+              </span>
+            </div>
+
+            {cats.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {cats.map(cat => (
+                  <Card key={cat.id} style={{ padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                      <div style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        background: cat.color,
+                        border: '1px solid var(--border)',
+                      }}></div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{cat.label_es}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          {[cat.label_en, cat.label_fr].filter(Boolean).join(' • ')}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <Btn size="xs" variant="ghost" onClick={() => handleEdit(cat)}>
+                        ✎ Editar
+                      </Btn>
+                      <Btn size="xs" variant="danger" onClick={() => handleDelete(cat.id)}>
+                        ⊘ Eliminar
+                      </Btn>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div style={{
+                padding: 12,
+                fontSize: 13,
+                color: 'var(--muted)',
+                textAlign: 'center',
+                borderRadius: 8,
+                background: 'var(--bg)',
+              }}>
+                No hay categorías de {typeLabels[type].toLowerCase()} aún
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {categories.length === 0 && (
+        <div style={{
+          padding: 20,
+          textAlign: 'center',
+          fontSize: 13,
+          color: 'var(--muted)',
+          borderRadius: 8,
+          background: 'var(--bg)',
+        }}>
+          Crea tu primera categoría personalizada haciendo clic en "Nueva categoría"
+        </div>
+      )}
     </div>
   )
 }

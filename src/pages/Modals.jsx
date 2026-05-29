@@ -62,7 +62,6 @@ import Btn from '../components/ui/Btn'
 import { Field, Input, Select, ModalFooter, ColorPicker } from '../components/ui/Form'
 import DatePicker from '../components/ui/DatePicker'
 import {
-    INCOME_CATS, EXPENSE_CATS, SAVING_CATS,
     ACC_COLORS, ACCOUNT_SUBTYPES, ALL_SUBTYPES,
     ASSET_SUBTYPES, CREDIT_SUBTYPES,
     isCredit as isCreditSubtype,
@@ -412,27 +411,28 @@ export function AccountModal({ onClose }) {
  * Para AHORROS: solo cuentas de activo
  */
 export function TxModal({ onClose }) {
-    const { t, accounts, addTxn, payCreditCard, transferToSaving, closeModal } = useApp()
+    const { t, accounts, addTxn, payCreditCard, transferToSaving, closeModal, categoriesByType } = useApp()
 
     const handleClose = onClose || closeModal
 
     const CATS_BY_TYPE = {
-        income: INCOME_CATS,
-        expense: EXPENSE_CATS,
-        saving: SAVING_CATS,
-        payment: EXPENSE_CATS, // para pagos de tarjeta se usan categorías de gasto
+        income: categoriesByType.income,
+        expense: categoriesByType.expense,
+        saving: categoriesByType.saving,
+        payment: categoriesByType.expense, // para pagos de tarjeta se usan categorías de gasto
     }
 
     const [f, setF] = useState({
         type: 'expense',
-        category: 'food',
+        category_key: categoriesByType.expense?.[0]?.key || 'food',
         account_id: '',
         description: '',
-        from_account_id: '',      // NUEVO: cuenta origen para pago de tarjeta
+        from_account_id: '',
         amount: '',
         date: toDay(),
         notes: '',
     })
+
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
@@ -443,17 +443,20 @@ export function TxModal({ onClose }) {
             [k]: v,
             // Al cambiar tipo: reset categoría y cuenta
             ...(k === 'type' ? {
-                category: CATS_BY_TYPE[v][0],
-                account_id: '', // reset porque la lista de cuentas disponibles cambia
+                category_key: CATS_BY_TYPE[v]?.[0]?.key || 'food',
+                account_id: '',
                 from_account_id: '',
             } : {}),
         }))
     }
 
+    const selectedCategory = customCategories.find(c => c.key === f.category_key)
+    const categoryType = selectedCategory?.type
+
     // Cuentas disponibles según el tipo de transacción
     const availableAccounts = accounts.filter(a => {
         if (!a.is_active) return false
-        if (f.type === 'income' || f.type === 'saving') {
+        if (categoryType === 'income' || categoryType === 'saving') {
             // Ingresos y ahorros solo van a cuentas de activo
             return !isCreditSubtype(a.subtype)
         }
@@ -474,36 +477,43 @@ export function TxModal({ onClose }) {
         if (!f.amount || parseFloat(f.amount) <= 0) { setError('El monto debe ser mayor que cero'); return }
         if (!f.account_id) { setError('Selecciona la cuenta o tarjeta'); return }
 
-        if (f.type === 'saving') {
+        if (categoryType === 'saving') {
             if (!f.from_account_id) { setError('Selecciona la cuenta de origen'); return }
             if (f.from_account_id === f.account_id) {
                 setError('La cuenta origen y destino no pueden ser la misma'); return
             }
             setSaving(true)
+            const cat = customCategories.find(c => c.key === f.category_key)
+            const categoryId = cat?.id || null
+
             const { error } = await transferToSaving({
                 from_account_id: f.from_account_id,
                 to_account_id: f.account_id,
-                category: f.category,
+                category_id: categoryId,
                 description: f.description.trim(),
                 amount: f.amount,
                 date: f.date,
                 notes: f.notes.trim() || null,
             })
+
             if (error) { setError(error.message); setSaving(false); return }
             handleClose()
             return
         }
 
         setSaving(true)
+        const cat = customCategories.find(c => c.key === f.category_key)
+        const categoryId = cat?.id || null
+
         const { error } = await addTxn({
-            type: f.type,
-            category: f.category,
+            category_id: categoryId,
             description: f.description.trim(),
             amount: parseFloat(f.amount),
             date: f.date,
             account_id: f.account_id || null,
             notes: f.notes.trim() || null,
         })
+
         if (error) { setError(error.message); setSaving(false); return }
         handleClose()
     }
@@ -517,19 +527,24 @@ export function TxModal({ onClose }) {
         if (!f.amount || parseFloat(f.amount) <= 0) { setError('El monto debe ser mayor que cero'); return }
 
         setSaving(true)
+        const cat = customCategories.find(c => c.key === 'credit_card_payment')
+        const categoryId = cat?.id || null
+
         const { error } = await payCreditCard({
             from_account_id: f.from_account_id,
             credit_account_id: f.account_id,
             amount: f.amount,
             date: f.date,
             notes: f.notes,
+            category_id: categoryId,
         })
+
         if (error) { setError(error.message); setSaving(false); return }
         handleClose()
     }
 
     // Si la cuenta seleccionada es de crédito, mostrar formulario de pago de tarjeta
-    if (f.type === 'payment') {
+    if (categoryType === 'payment') {
         const assetAccounts = accounts.filter(a => a.is_active && !isCreditSubtype(a.subtype))
 
         return (
@@ -537,7 +552,7 @@ export function TxModal({ onClose }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 
                     {/* Tipo de transacción */}
-                    <Field label={t.type}>
+                    <Field label={categoryType}>
                         <div style={{ display: 'flex', gap: 5 }}>
                             {[
                                 { id: 'income', label: t.income, color: 'var(--green)' },
@@ -547,9 +562,9 @@ export function TxModal({ onClose }) {
                             ].map(tp => (
                                 <button key={tp.id} onClick={() => set('type', tp.id)} style={{
                                     flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
-                                    border: `1px solid ${f.type === tp.id ? tp.color + '66' : 'var(--border)'}`,
-                                    background: f.type === tp.id ? tp.color + '12' : 'transparent',
-                                    color: f.type === tp.id ? tp.color : 'var(--muted)',
+                                    border: `1px solid ${categoryType === tp.id ? tp.color + '66' : 'var(--border)'}`,
+                                    background: categoryType === tp.id ? tp.color + '12' : 'transparent',
+                                    color: categoryType === tp.id ? tp.color : 'var(--muted)',
                                     fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
                                     cursor: 'pointer', transition: 'all .15s',
                                 }}>
@@ -645,44 +660,23 @@ export function TxModal({ onClose }) {
         <Modal title={`＋ ${t.addTransaction}`} onClose={handleClose}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
 
-                {/* Tipo de transacción */}
-                <Field label={t.type}>
-                    <div style={{ display: 'flex', gap: 5 }}>
-                        {[
-                            { id: 'income', label: t.income, color: 'var(--green)' },
-                            { id: 'expense', label: t.expense, color: 'var(--red)' },
-                            { id: 'saving', label: t.savingTransfer, color: 'var(--purple)' },
-                            { id: 'payment', label: t.payment, color: 'var(--blue)' },
-                        ].map(tp => (
-                            <button key={tp.id} onClick={() => set('type', tp.id)} style={{
-                                flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
-                                border: `1px solid ${f.type === tp.id ? tp.color + '66' : 'var(--border)'}`,
-                                background: f.type === tp.id ? tp.color + '12' : 'transparent',
-                                color: f.type === tp.id ? tp.color : 'var(--muted)',
-                                fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
-                                cursor: 'pointer', transition: 'all .15s',
-                            }}>
-                                {tp.label}
-                            </button>
-                        ))}
-                    </div>
-                </Field>
-
-
                 {/* Categoría */}
                 <Field label={t.category}>
-                    <Select value={f.category} onChange={e => set('category', e.target.value)}>
-                        {(CATS_BY_TYPE[f.type] || []).map(c => (
-                            <option key={c} value={c}>{t.cats?.[c] || c}</option>
+                    <Select value={f.category_key} onChange={e => set('category_key', e.target.value)}>
+                        {customCategories.map(c => (
+                            <option key={c.key} value={c.key}>
+                                {c[`label_${lang}`] || c.label_es || c.key}
+                            </option>
                         ))}
                     </Select>
+
                 </Field>
 
                 {/* ── SELECTOR DE CUENTA UNIFICADO ── */}
                 <Field label={
-                    f.type === 'expense'
+                    categoryType === 'expense'
                         ? t.expenseAccount
-                        : f.type === 'income'
+                        : categoryType === 'income'
                             ? t.incomeAccount
                             : t.savingDestinationAccount
                 }>
@@ -702,7 +696,7 @@ export function TxModal({ onClose }) {
                         )}
 
                         {/* Grupo: Tarjetas de crédito (solo para gastos) */}
-                        {creditAccounts.length > 0 && f.type === 'expense' && (
+                        {creditAccounts.length > 0 && categoryType === 'expense' && (
                             <optgroup label="💳 Tarjeta de crédito / Línea de crédito">
                                 {creditAccounts.map(a => (
                                     <option key={a.id} value={a.id}>
@@ -729,14 +723,14 @@ export function TxModal({ onClose }) {
                             )}
                             {!selectedIsCredit && (
                                 <span style={{ color: 'var(--muted)' }}>
-                                    · {f.type === 'saving' ? 'El dinero entrará a esta cuenta de ahorro' : 'El gasto se descontará del saldo de la cuenta'}
+                                    · {categoryType === 'saving' ? 'El dinero entrará a esta cuenta de ahorro' : 'El gasto se descontará del saldo de la cuenta'}
                                 </span>
                             )}
                         </div>
                     )}
                 </Field>
 
-                {f.type === 'saving' && (
+                {categoryType === 'saving' && (
                     <Field label={t.sourceAccount}>
                         <Select value={f.from_account_id} onChange={e => set('from_account_id', e.target.value)}>
                             <option value="">{t.selectSourceAccount}</option>
@@ -753,38 +747,14 @@ export function TxModal({ onClose }) {
                     </Field>
                 )}
 
-                {/* // Lógica especial para pagos de tarjeta de crédito:
-                    // Si la cuenta seleccionada es de crédito, mostrar un botón adicional
-                    // para registrar un pago a esa tarjeta (que abre otro modal específico).
-                
-                {selectedIsCredit && f.type !== 'credit_payment' && (
-                    <button
-                        onClick={() => set('type', 'credit_payment')}
-                        style={{
-                            marginTop: 6,
-                            padding: '6px 10px',
-                            borderRadius: 8,
-                            border: '1px solid var(--blue)',
-                            background: 'var(--blue)10',
-                            color: 'var(--blue)',
-                            fontSize: 11,
-                            cursor: 'pointer',
-                        }}
-                    >
-                        💳 Pagar esta tarjeta
-                    </button>
-                )} 
-                */}
-
-
                 {/* Descripción */}
                 <Field label={t.description}>
                     <Input
                         value={f.description}
                         onChange={e => set('description', e.target.value)}
                         placeholder={
-                            f.type === 'income' ? 'Ej: Salario Mayo, Freelance proyecto web...' :
-                                f.type === 'expense' ? 'Ej: IGA Supermercado, Gasolina Shell...' :
+                            categoryType === 'income' ? 'Ej: Salario Mayo, Freelance proyecto web...' :
+                                categoryType === 'expense' ? 'Ej: IGA Supermercado, Gasolina Shell...' :
                                     'Ej: Ahorro vacaciones, Fondo emergencias...'
                         }
                         onKeyDown={e => e.key === 'Enter' && handleSave()}
@@ -858,9 +828,13 @@ export function DebtModal({ onClose }) {
     const { t, assetAccounts, addDebt, closeModal } = useApp()
     const handleClose = onClose || closeModal
 
+    const debtCategories = customCategories.filter(c =>
+        ['mortgage', 'car', 'personal_loan', 'student_loan', 'other_expense'].includes(c.key)
+    )
+
     const [f, setF] = useState({
         name: '',
-        category: 'mortgage',
+        category: debtCategories?.[0]?.key || null,
         total_amount: '',
         paid_amount: '0',
         monthly_payment: '',
@@ -871,14 +845,6 @@ export function DebtModal({ onClose }) {
     })
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
-
-    const DEBT_CATEGORIES = [
-        { id: 'mortgage', label: '🏠 Hipoteca / Mortgage' },
-        { id: 'car', label: '🚗 Préstamo auto' },
-        { id: 'personal_loan', label: '💼 Préstamo personal' },
-        { id: 'student_loan', label: '🎓 Préstamo estudiantil' },
-        { id: 'other_expense', label: '📋 Otro tipo de deuda' },
-    ]
 
     const handleSave = async () => {
         if (!f.name.trim()) { setError('El nombre es requerido'); return }
@@ -892,7 +858,7 @@ export function DebtModal({ onClose }) {
         setSaving(true)
         const { error } = await addDebt({
             name: f.name.trim(),
-            category: f.category,
+            category: categoryId,
             total_amount: parseFloat(f.total_amount),
             paid_amount: parseFloat(f.paid_amount || '0'),
             monthly_payment: f.monthly_payment ? parseFloat(f.monthly_payment) : null,
@@ -929,11 +895,14 @@ export function DebtModal({ onClose }) {
                 </Field>
 
                 <Field label="Categoría">
-                    <Select value={f.category} onChange={e => setF(p => ({ ...p, category: e.target.value }))}>
-                        {DEBT_CATEGORIES.map(c => (
-                            <option key={c.id} value={c.id}>{c.label}</option>
+                    <Select value={f.category_key} onChange={e => setF(p => ({ ...p, category_key: e.target.value }))} >
+                        {debtCategories.map(c => (
+                            <option key={c.id} value={c.key}>
+                                {c[`label_${lang}`] || c.label_es || c.label_en || c.key}
+                            </option>
                         ))}
                     </Select>
+
                 </Field>
 
                 <div className="g2">
@@ -1048,14 +1017,14 @@ export function DebtModal({ onClose }) {
  *   Al marcar pagado: descuenta de TD Chequing Y abona a la deuda hipoteca.
  */
 export function RecurringModal({ onClose }) {
-    const { t, accounts, debts, addRecurring, closeModal } = useApp()
+    const { t, accounts, debts, addRecurring, closeModal, categoriesByType } = useApp()
     const handleClose = onClose || closeModal
 
     const [f, setF] = useState({
         name: '',
         amount: '',
         frequency: 'monthly',
-        category: 'utilities',
+        category_key: 'utilities',
         account_id: '',
         linked_debt_id: '',
         next_due: toDay(),
@@ -1091,16 +1060,20 @@ export function RecurringModal({ onClose }) {
         if (!f.account_id) { setError('Selecciona la cuenta o tarjeta'); return }
 
         setSaving(true)
+        const cat = customCategories.find(c => c.key === f.category_key)
+        const categoryId = cat?.id || null
+
         const { error } = await addRecurring({
             name: f.name.trim(),
             amount: parseFloat(f.amount),
             frequency: f.frequency,
-            category: f.category,
+            category_id: categoryId,              // ← OBLIGATORIO
             account_id: f.account_id || null,
             linked_debt_id: f.linked_debt_id || null,
             next_due: f.next_due || null,
             notes: f.notes.trim() || null,
         })
+
         if (error) { setError(error.message); setSaving(false); return }
         handleClose()
     }
@@ -1141,11 +1114,14 @@ export function RecurringModal({ onClose }) {
                 </div>
 
                 <Field label="Categoría">
-                    <Select value={f.category} onChange={e => setF(p => ({ ...p, category: e.target.value }))}>
-                        {EXPENSE_CATS.map(c => (
-                            <option key={c} value={c}>{t.cats?.[c] || c}</option>
+                    <Select value={f.category_key} onChange={e => setF(p => ({ ...p, category_key: e.target.value }))} >
+                        {categoriesByType.expense.map(c => (
+                            <option key={c.key} value={c.key}>
+                                {c[`label_${lang}`] || c.label_es || c.label_en || c.key}
+                            </option>
                         ))}
                     </Select>
+
                 </Field>
 
                 {/* ── SELECTOR DE CUENTA UNIFICADO ── */}
@@ -1398,6 +1374,147 @@ export function GoalModal({ onClose }) {
                     saveLabel={saving ? 'Guardando...' : 'Crear meta'}
                     cancelLabel={t.cancel}
                     disabled={saving || !f.name.trim() || !f.target_amount} />
+            </div>
+        </Modal>
+    )
+}
+
+// ── CategoryModal — Crear/Editar categoría ──────────────────────────────────
+/**
+ * Modal para crear o editar una categoría.
+ * 
+ * @param {object} category - Categoría a editar (null si es crear)
+ * @param {function} onClose - Callback para cerrar el modal
+ */
+export function CategoryModal({ category, onClose }) {
+    const { t, addCategory, editCategory, lang } = useApp()
+    const [saving, setSaving] = useState(false)
+    const [error, setError] = useState('')
+    const [f, setF] = useState(category ? {
+        key: category.key,
+        type: category.type,
+        label_es: category.label_es || '',
+        label_en: category.label_en || '',
+        label_fr: category.label_fr || '',
+        color: category.color || '#94a3b8',
+    } : {
+        key: '',
+        type: 'expense',
+        label_es: '',
+        label_en: '',
+        label_fr: '',
+        color: '#94a3b8',
+    })
+
+    const handleSave = async () => {
+        if (!f.key.trim() || !f.label_es.trim()) {
+            setError('Completa la clave y al menos el nombre en español')
+            return
+        }
+
+        setSaving(true)
+        setError('')
+
+        let result
+        if (category) {
+            result = await editCategory(category.id, {
+                label_es: f.label_es,
+                label_en: f.label_en,
+                label_fr: f.label_fr,
+                color: f.color,
+            })
+        } else {
+            result = await addCategory({
+                key: f.key.toLowerCase().replace(/\s+/g, '_'),
+                category_id: categoryId,
+                label_es: f.label_es,
+                label_en: f.label_en,
+                label_fr: f.label_fr,
+                color: f.color,
+            })
+        }
+
+        if (result.error) {
+            setError(result.error.message || 'Error al guardar')
+        } else {
+            onClose()
+        }
+        setSaving(false)
+    }
+
+    return (
+        <Modal title={category ? '✏️ Editar categoría' : '➕ Nueva categoría'} onClose={onClose}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                {!category && (
+                    <Field label="Identificador *">
+                        <Input
+                            value={f.key}
+                            onChange={e => setF(p => ({ ...p, key: e.target.value }))}
+                            placeholder="ej: cursos, regalo, transporte"
+                            disabled={category ? true : false}
+                        />
+                    </Field>
+                )}
+
+                <Field label="Tipo *">
+                    <Select
+                        value={categoryType}
+                        onChange={e => setF(p => ({ ...p, type: e.target.value }))}
+                        disabled={category ? true : false}
+                    >
+                        <option value="income">Ingreso</option>
+                        <option value="expense">Gasto</option>
+                        <option value="saving">Ahorro</option>
+                    </Select>
+                </Field>
+
+                <Field label="Nombre (Español) *">
+                    <Input
+                        value={f.label_es}
+                        onChange={e => setF(p => ({ ...p, label_es: e.target.value }))}
+                        placeholder="ej: Cursos, Regalo"
+                    />
+                </Field>
+
+                <Field label="Nombre (English)">
+                    <Input
+                        value={f.label_en}
+                        onChange={e => setF(p => ({ ...p, label_en: e.target.value }))}
+                        placeholder="ej: Courses, Gift"
+                    />
+                </Field>
+
+                <Field label="Nom (Français)">
+                    <Input
+                        value={f.label_fr}
+                        onChange={e => setF(p => ({ ...p, label_fr: e.target.value }))}
+                        placeholder="ej: Cours, Cadeau"
+                    />
+                </Field>
+
+                <Field label="Color">
+                    <ColorPicker
+                        colors={['#f87171', '#fca5a5', '#fb923c', '#fbbf24', '#e879f9', '#818cf8', '#38bdf8', '#f472b6', '#60a5fa', '#a78bfa', '#f97316', '#facc15', '#2dd4a0', '#94a3b8']}
+                        selected={f.color}
+                        onChange={c => setF(p => ({ ...p, color: c }))}
+                    />
+                </Field>
+
+                {error && (
+                    <div style={{
+                        background: 'var(--red)10', border: '1px solid var(--red)33',
+                        borderRadius: 8, padding: '8px 12px', color: 'var(--red)', fontSize: 12,
+                    }}>⚠️ {error}</div>
+                )}
+
+                <ModalFooter
+                    onClose={onClose}
+                    onSave={handleSave}
+                    saveLabel={saving ? 'Guardando...' : (category ? 'Actualizar' : 'Crear')}
+                    cancelLabel={t.cancel}
+                    disabled={saving || !f.key.trim() || !f.label_es.trim()}
+                />
             </div>
         </Modal>
     )

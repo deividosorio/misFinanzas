@@ -57,11 +57,7 @@ import Modal from '../components/ui/Modal'
 import Btn from '../components/ui/Btn'
 import { Field, Input, Select, ModalFooter, ColorPicker } from '../components/ui/Form'
 import DatePicker from '../components/ui/DatePicker'
-import {
-    ACCOUNT_SUBTYPES, CREDIT_SUBTYPES,
-    INCOME_CATS, EXPENSE_CATS, SAVING_CATS,
-    ACC_COLORS, toDay,
-} from '../lib/constants'
+import { ACCOUNT_SUBTYPES, CREDIT_SUBTYPES, ACC_COLORS, toDay } from '../lib/constants'
 
 const ASSET_SUBTYPES = Object.keys(ACCOUNT_SUBTYPES).filter(subtype => !CREDIT_SUBTYPES.includes(subtype))
 
@@ -74,23 +70,23 @@ const isCred = (subtype) => CREDIT_SUBTYPES.includes(subtype)
  * v4: selector de cuenta unificado. Sin payment_account_id.
  */
 export function EditTxModal({ txn, onClose }) {
-    const { t, accounts, editTxn } = useApp()
+    const { t, accounts, editTxn, categoriesByType, customCategories, lang } = useApp()
 
     const CATS = {
-        income: INCOME_CATS,
-        expense: EXPENSE_CATS,
-        saving: SAVING_CATS,
+        income: categoriesByType.income,
+        expense: categoriesByType.expense,
+        saving: categoriesByType.saving,
     }
 
     const [f, setF] = useState({
-        type: txn.type,
-        category: txn.category,
+        category_key: txn.category_key || null,
         description: txn.description || '',
         amount: String(txn.amount),
         date: txn.date,
         account_id: txn.account_id || '',
         notes: txn.notes || '',
     })
+
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
@@ -98,7 +94,6 @@ export function EditTxModal({ txn, onClose }) {
         setError('')
         setF(prev => ({
             ...prev, [k]: v,
-            ...(k === 'type' ? { category: CATS[v][0], account_id: '' } : {}),
         }))
     }
 
@@ -114,15 +109,18 @@ export function EditTxModal({ txn, onClose }) {
         if (!f.amount || parseFloat(f.amount) <= 0) { setError('Monto inválido'); return }
 
         setSaving(true)
+        const cat = customCategories.find(c => c.key === f.category_key)
+        const categoryId = cat?.id || null
+
         const { error } = await editTxn(txn.id, {
-            type: f.type,
-            category: f.category,
+            category_id: categoryId,
             description: f.description.trim(),
             amount: parseFloat(f.amount),
             date: f.date,
             account_id: f.account_id || null,
             notes: f.notes.trim() || null,
         })
+
         if (error) { setError(error.message); setSaving(false); return }
         onClose()
     }
@@ -133,39 +131,20 @@ export function EditTxModal({ txn, onClose }) {
 
                 {error && <ErrMsg msg={error} />}
 
-                {/* Tipo */}
-                <Field label={t.type}>
-                    <div style={{ display: 'flex', gap: 5 }}>
-                        {[
-                            { id: 'income', label: t.income, color: 'var(--green)' },
-                            { id: 'expense', label: t.expense, color: 'var(--red)' },
-                            { id: 'saving', label: t.saving, color: 'var(--purple)' },
-                        ].map(tp => (
-                            <button key={tp.id} onClick={() => set('type', tp.id)} style={{
-                                flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
-                                border: `1px solid ${f.type === tp.id ? tp.color + '66' : 'var(--border)'}`,
-                                background: f.type === tp.id ? tp.color + '12' : 'transparent',
-                                color: f.type === tp.id ? tp.color : 'var(--muted)',
-                                fontFamily: 'var(--font-body)', fontSize: 13, fontWeight: 600,
-                                cursor: 'pointer', transition: 'all .15s',
-                            }}>
-                                {tp.label}
-                            </button>
-                        ))}
-                    </div>
-                </Field>
-
                 {/* Categoría */}
                 <Field label={t.category}>
-                    <Select value={f.category} onChange={e => set('category', e.target.value)}>
-                        {(CATS[f.type] || []).map(c => (
-                            <option key={c} value={c}>{t.cats?.[c] || c}</option>
+                    <Select value={f.category_key} onChange={e => setF(p => ({ ...p, category_key: e.target.value }))} >
+                        {customCategories.map(c => (
+                            <option key={c.key} value={c.key}>
+                                {c[`label_${lang}`] || c.label_es || c.label_en || c.key}
+                            </option>
                         ))}
                     </Select>
+
                 </Field>
 
                 {/* Cuenta unificada */}
-                <Field label={f.type === 'expense' ? t.accountUsed : f.type === 'income' ? t.from : t.savingAccount}>
+                <Field label={txn.category_type === 'expense' ? t.accountUsed : txn.category_type === 'income' ? t.from : t.savingAccount}>
                     <Select value={f.account_id} onChange={e => set('account_id', e.target.value)}>
                         <option value="">— Sin cuenta —</option>
                         {assetAccounts.length > 0 && (
@@ -239,14 +218,14 @@ export function EditTxModal({ txn, onClose }) {
  * linked_account_id: solo cuentas de activo (el pago sale de débito, no crédito).
  */
 export function EditDebtModal({ debt, onClose }) {
-    const { t, accounts, editDebt } = useApp()
+    const { t, accounts, editDebt, customCategories, lang } = useApp()
 
     // Solo cuentas de activo para pagos de deuda
     const debitAccounts = accounts.filter(a => a.is_active && !isCred(a.subtype))
 
     const [f, setF] = useState({
         name: debt.name,
-        category: debt.category || 'mortgage',
+        category_key: debt.category_key || null,
         total_amount: String(debt.total_amount),
         monthly_payment: String(debt.monthly_payment || ''),
         interest_rate: String(debt.interest_rate || ''),
@@ -257,13 +236,9 @@ export function EditDebtModal({ debt, onClose }) {
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
-    const DEBT_CATS = [
-        { id: 'mortgage', label: '🏠 Hipoteca' },
-        { id: 'car', label: '🚗 Auto' },
-        { id: 'personal_loan', label: '💼 Préstamo personal' },
-        { id: 'student_loan', label: '🎓 Préstamo estudiantil' },
-        { id: 'other_expense', label: '📋 Otro' },
-    ]
+    const debtCategories = customCategories.filter(c =>
+        ['mortgage', 'car', 'personal_loan', 'student_loan', 'other_expense'].includes(c.key)
+    )
 
     const handleSave = async () => {
         if (!f.name.trim()) { setError('El nombre es requerido'); return }
@@ -271,13 +246,16 @@ export function EditDebtModal({ debt, onClose }) {
             setError('El monto total debe ser mayor que cero'); return
         }
         setSaving(true)
+        const cat = customCategories.find(c => c.key === f.category_key)
+        const categoryId = cat?.id || null
+
         const { error } = await editDebt(debt.id, {
             name: f.name.trim(),
             total_amount: parseFloat(f.total_amount),
             monthly_payment: f.monthly_payment ? parseFloat(f.monthly_payment) : null,
             interest_rate: f.interest_rate ? parseFloat(f.interest_rate) : 0,
             start_date: f.start_date || null,
-            category: f.category,
+            category_id: categoryId,
             notes: f.notes.trim() || null,
             linked_account_id: f.linked_account_id || null,
         })
@@ -296,8 +274,12 @@ export function EditDebtModal({ debt, onClose }) {
                 </Field>
 
                 <Field label="Categoría">
-                    <Select value={f.category} onChange={e => setF(p => ({ ...p, category: e.target.value }))}>
-                        {DEBT_CATS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    <Select value={f.category_key} onChange={e => setF(p => ({ ...p, category_key: e.target.value }))}>
+                        {debtCategories.map(c => (
+                            <option key={c.id} value={c.key}>
+                                {c[`label_${lang}`] || c.label_es || c.label_en || c.key}
+                            </option>
+                        ))}
                     </Select>
                 </Field>
 
@@ -355,7 +337,7 @@ export function EditDebtModal({ debt, onClose }) {
  * Edita un pago recurrente con selector de cuenta unificado y deuda vinculada.
  */
 export function EditRecurringModal({ rec, onClose }) {
-    const { t, accounts, debts, editRecurring } = useApp()
+    const { t, accounts, debts, editRecurring, categoriesByType, customCategories, lang } = useApp()
 
     const assetAccounts = accounts.filter(a => a.is_active && !isCred(a.subtype))
     const creditAccounts = accounts.filter(a => a.is_active && isCred(a.subtype))
@@ -365,7 +347,7 @@ export function EditRecurringModal({ rec, onClose }) {
         name: rec.name,
         amount: String(rec.amount),
         frequency: rec.frequency,
-        category: rec.category,
+        category_key: rec.category_key,
         account_id: rec.account_id || '',
         linked_debt_id: rec.linked_debt_id || '',
         next_due: rec.next_due || toDay(),
@@ -386,17 +368,22 @@ export function EditRecurringModal({ rec, onClose }) {
         { id: 'yearly', label: 'Anual' },
     ]
 
+    const CATS = categoriesByType.expense || []
+
     const handleSave = async () => {
         if (!f.name.trim()) { setError('El nombre es requerido'); return }
         if (!f.amount || parseFloat(f.amount) <= 0) { setError('Monto inválido'); return }
         if (!f.account_id) { setError('Selecciona la cuenta'); return }
 
         setSaving(true)
+        const cat = customCategories.find(c => c.key === f.category_key)
+        const categoryId = cat?.id || null
+
         const { error } = await editRecurring(rec.id, {
             name: f.name.trim(),
             amount: parseFloat(f.amount),
             frequency: f.frequency,
-            category: f.category,
+            category_id: categoryId,                     // ← OBLIGATORIO
             account_id: f.account_id || null,
             linked_debt_id: clearDebt ? null : (f.linked_debt_id || null),
             next_due: f.next_due || null,
@@ -429,8 +416,12 @@ export function EditRecurringModal({ rec, onClose }) {
                 </div>
 
                 <Field label="Categoría">
-                    <Select value={f.category} onChange={e => setF(p => ({ ...p, category: e.target.value }))}>
-                        {EXPENSE_CATS.map(c => <option key={c} value={c}>{t.cats?.[c] || c}</option>)}
+                    <Select value={f.category_key} onChange={e => setF(p => ({ ...p, category_key: e.target.value }))} >
+                        {CATS.map(c => (
+                            <option key={c.key} value={c.key}>
+                                {c[`label_${lang}`] || c.label_es || c.key}
+                            </option>
+                        ))}
                     </Select>
                 </Field>
 

@@ -74,10 +74,13 @@ export function AppProvider({ children }) {
     }, {})
   }, [customCategories, lang])
 
-  const mergedCats = useMemo(() => ({
-    ...(T[lang]?.cats || T.es.cats),
-    ...customCategoryLabels,
-  }), [lang, customCategoryLabels])
+  const categoryColorMap = useMemo(() => {
+    return customCategories.reduce((acc, cat) => {
+      if (cat.color) acc[cat.key] = cat.color
+      return acc
+    }, {})
+  }, [customCategories])
+
 
   const categoriesByType = useMemo(() => {
     const groups = { income: [], expense: [], saving: [] }
@@ -92,11 +95,7 @@ export function AppProvider({ children }) {
     [customCategories]
   )
 
-  const t = useMemo(() => ({
-    ...T[lang],
-    cats: mergedCats,
-  }), [lang, mergedCats])
-
+  const t = useMemo(() => ({...T[lang]}), [lang])
   const isKid = profile?.is_kid || false
   const isOwner = profile?.role === 'owner'
   const isFamilyAdmin = ['owner', 'admin'].includes(profile?.role)
@@ -120,16 +119,14 @@ export function AppProvider({ children }) {
     })
     , [txns, af, selAcc])
 
-  const getCategoryLabel = (category) => {
-    if (!category) return category
-    // category may be an id (number) or a key (string)
-    if (categoriesById && categoriesById.get && categoriesById.get(category)) {
-      const cat = categoriesById.get(category)
+  const getCategoryLabel = (categoryId, categoryKey) => {
+    const cat = categoriesById.get(categoryId)
+    if (cat) {
       return cat[`label_${lang}`] || cat.label_es || cat.label_en || cat.key
     }
-    // fallback: treat as key
-    return t.cats?.[category] || category
+    return categoryKey || 'Sin categoría'
   }
+
 
   // Auth is now handled by useAuth hook — no local effect needed
   // Auth functions delegated to useAuth hook (see above)
@@ -143,7 +140,7 @@ export function AppProvider({ children }) {
     try {
       const results = await Promise.allSettled([
         supabase.from('account_balances').select('*').eq('family_id', fid),
-        supabase.from('transactions').select('*').eq('family_id', fid).eq('is_void', false).order('date', { ascending: false }).limit(500),
+        supabase.from('transactions_with_category').select('*').eq('family_id', fid).eq('is_void', false).order('date', { ascending: false }).limit(500),
         supabase.from('debts').select('*').eq('family_id', fid).eq('is_active', true),
         supabase.from('recurring_with_details').select('*').eq('family_id', fid).eq('is_active', true),
         supabase.from('savings_goals').select('*').eq('family_id', fid),
@@ -176,26 +173,7 @@ export function AppProvider({ children }) {
         })
       }
 
-      if (txnsD) {
-        const mapped = txnsD.map(tx => {
-          const copy = { ...tx }
-          // If tx has a category key (legacy), convert to category_id when possible
-          if (copy.category && typeof copy.category === 'string') {
-            const c = keyToCat[copy.category]
-            if (c) {
-              copy.category_id = c.id
-              copy.category_key = copy.category
-            } else {
-              // keep legacy key in category_key
-              copy.category_key = copy.category
-            }
-          }
-          // If tx already has category_id, ensure we keep it
-          return copy
-        })
-        setTxns(mapped)
-      }
-
+      if (txnsD) setTxns(txnsD)
       if (debtsD) setDebts(debtsD)
       if (recD) setRecurring(recD)
       if (goalsD) setGoals(goalsD)
@@ -287,18 +265,19 @@ export function AppProvider({ children }) {
   // ── Transacciones ──────────────────────────────────────────────────────
   const addTxn = async (tx) => {
     if (!family?.id) return { error: new Error('Familia no definida') }
-    // Resolve category key -> id when possible
+
+    // Siempre trabajamos con category_id
     let categoryId = tx.category_id || null
-    if (!categoryId && tx.category) {
-      const byKey = customCategories.find(c => c.key === tx.category)
-      if (byKey) categoryId = byKey.id
-      else categoryId = tx.category
+
+    // Si viene un category_key (legacy), resolverlo
+    if (!categoryId && tx.category_key) {
+      const found = customCategories.find(c => c.key === tx.category_key)
+      if (found) categoryId = found.id
     }
 
     const payload = {
       family_id: family.id,
       created_by: profile?.id || null,
-      type: tx.type,
       category_id: categoryId,
       description: tx.description || null,
       amount: parseFloat(tx.amount),
@@ -309,22 +288,26 @@ export function AppProvider({ children }) {
       source_id: tx.source_id || null,
     }
 
-    const { data, error } = await supabase.from('transactions').insert(payload).select().single()
+    const { data, error } = await supabase
+      .from('transactions')
+      .insert(payload)
+      .select()
+      .single()
+
     if (!error) await loadData()
     return { data, error }
   }
 
+
   const editTxn = async (id, changes) => {
-    // Resolve category key -> id when possible
     let categoryId = changes.category_id ?? null
-    if (!categoryId && changes.category) {
-      const byKey = customCategories.find(c => c.key === changes.category)
-      if (byKey) categoryId = byKey.id
-      else categoryId = changes.category
+
+    if (!categoryId && changes.category_key) {
+      const found = customCategories.find(c => c.key === changes.category_key)
+      if (found) categoryId = found.id
     }
 
     const update = {
-      type: changes.type ?? undefined,
       category_id: categoryId ?? undefined,
       description: changes.description ?? undefined,
       amount: changes.amount != null ? parseFloat(changes.amount) : undefined,
@@ -332,16 +315,28 @@ export function AppProvider({ children }) {
       account_id: changes.account_id ?? undefined,
       notes: changes.notes ?? undefined,
     }
-    const payload = Object.fromEntries(Object.entries(update).filter(([, v]) => v !== undefined))
-    const { error } = await supabase.from('transactions').update(payload).eq('id', id)
+
+    const payload = Object.fromEntries(
+      Object.entries(update).filter(([, v]) => v !== undefined)
+    )
+
+    const { error } = await supabase
+      .from('transactions')
+      .update(payload)
+      .eq('id', id)
+
     if (!error) await loadData()
     return { error }
   }
 
+
   const deleteTxn = async (id) => {
     const tx = txns.find(t => t.id === id)
-    if (tx?.auto_source) await supabase.from('transactions').update({ is_void: true }).eq('id', id)
-    else await supabase.from('transactions').delete().eq('id', id)
+    if (tx?.auto_source)
+      await supabase.from('transactions').update({ is_void: true }).eq('id', id)
+    else
+      await supabase.from('transactions').delete().eq('id', id)
+
     await loadData()
   }
 
@@ -350,26 +345,42 @@ export function AppProvider({ children }) {
     if (!family?.id) return { error: new Error('Familia no definida') }
     if (!from_account_id || !credit_account_id) return { error: new Error('Cuentas inválidas') }
 
+    // Buscar categoría credit_card_payment
+    const cat = customCategories.find(c => c.key === 'credit_card_payment')
+    const categoryId = cat?.id || null
+
     const { data, error } = await supabase.rpc('rpc_pay_credit_card', {
-      p_family_id: family.id, p_from_account_id: from_account_id,
-      p_credit_account_id: credit_account_id, p_amount: parseFloat(amount),
-      p_date: date, p_notes: notes || null,
+      p_family_id: family.id,
+      p_from_account_id: from_account_id,
+      p_credit_account_id: credit_account_id,
+      p_amount: parseFloat(amount),
+      p_date: date,
+      p_category_id: categoryId,     // ← OBLIGATORIO
+      p_notes: notes || null,
     })
 
     if (!error) await loadData()
     return { data, error }
   }
 
+
   const transferToSaving = async ({ from_account_id, to_account_id, category, description, amount, date = toDay(), notes }) => {
     if (!family?.id) return { error: new Error('Familia no definida') }
     if (!from_account_id || !to_account_id) return { error: new Error('Cuentas inválidas') }
     if (from_account_id === to_account_id) return { error: new Error('La cuenta origen y destino no pueden coincidir') }
 
+    // Resolver category_id desde category_key
+    let categoryId = null
+    if (category) {
+      const found = customCategories.find(c => c.key === category)
+      if (found) categoryId = found.id
+    }
+
     const { data, error } = await supabase.rpc('rpc_transfer_to_saving', {
       p_from_account_id: from_account_id,
       p_to_account_id: to_account_id,
       p_amount: parseFloat(amount),
-      p_category: category || null,
+      p_category_id: categoryId,        // ← OBLIGATORIO
       p_description: description || null,
       p_date: date,
       p_notes: notes || null,
@@ -378,6 +389,7 @@ export function AppProvider({ children }) {
     if (!error) await loadData()
     return { data, error }
   }
+
 
   // ── Cuentas ────────────────────────────────────────────────────────────
   const addAccount = async (acc) => {
@@ -419,17 +431,32 @@ export function AppProvider({ children }) {
   // ── Deudas ─────────────────────────────────────────────────────────────
   const addDebt = async (debt) => {
     console.log('[MiFinanza] Adding debt:', debt)
+
+    // Resolver category_id desde category_key
+    let categoryId = debt.category_id || null
+    if (!categoryId && debt.category) {
+      const found = customCategories.find(c => c.key === debt.category)
+      if (found) categoryId = found.id
+    }
+
     const { data, error } = await supabase.from('debts').insert({
-      family_id: family.id, created_by: profile?.id, linked_account_id: debt.linked_account_id || null,
-      name: debt.name, category: debt.category, notes: debt.notes || null,
-      total_amount: parseFloat(debt.total_amount), paid_amount: parseFloat(debt.paid_amount || 0),
+      family_id: family.id,
+      created_by: profile?.id,
+      linked_account_id: debt.linked_account_id || null,
+      name: debt.name,
+      category_id: categoryId,                         // ← NUEVO
+      notes: debt.notes || null,
+      total_amount: parseFloat(debt.total_amount),
+      paid_amount: parseFloat(debt.paid_amount || 0),
       monthly_payment: debt.monthly_payment ? parseFloat(debt.monthly_payment) : null,
       interest_rate: parseFloat(debt.interest_rate || 0),
     }).select().single()
+
     if (!error) await loadData()
     console.log('[MiFinanza] addDebt result:', { data, error })
     return { data, error }
   }
+
 
   const editDebt = async (id, changes) => {
     const {
@@ -444,6 +471,13 @@ export function AppProvider({ children }) {
       is_active,
     } = changes
 
+    // Resolver category_id
+    let categoryId = changes.category_id ?? null
+    if (!categoryId && category) {
+      const found = customCategories.find(c => c.key === category)
+      if (found) categoryId = found.id
+    }
+
     const { error } = await supabase.rpc('rpc_update_debt', {
       p_debt_id: id,
       p_name: name ?? null,
@@ -451,15 +485,17 @@ export function AppProvider({ children }) {
       p_monthly_payment: monthly_payment ?? null,
       p_interest_rate: interest_rate ?? null,
       p_start_date: start_date ?? null,
-      p_category: category ?? null,
+      p_category_id: categoryId ?? null,              // ← NUEVO
       p_notes: notes ?? null,
       p_is_active: is_active ?? null,
       p_linked_account_id: linked_account_id ?? null,
     })
+
     console.log('[MiFinanza] editDebt result:', { error })
     if (!error) await loadData()
     return { error }
   }
+
 
   const deleteDebt = async (id) => {
     await supabase.from('debts').update({ is_active: false }).eq('id', id)
@@ -478,26 +514,65 @@ export function AppProvider({ children }) {
   // ── Recurrentes ────────────────────────────────────────────────────────
   const addRecurring = async (rec) => {
     console.log('[MiFinanza] Adding recurring payment:', rec)
-    const { data, error } = await supabase.from('recurring_payments').insert({
-      family_id: family.id, created_by: profile?.id, ...rec, amount: parseFloat(rec.amount),
-    }).select().single()
+
+    // Resolver category_id desde category_key
+    let categoryId = rec.category_id || null
+    if (!categoryId && rec.category) {
+      const found = customCategories.find(c => c.key === rec.category)
+      if (found) categoryId = found.id
+    }
+
+    const payload = {
+      family_id: family.id,
+      created_by: profile?.id,
+      name: rec.name,
+      amount: parseFloat(rec.amount),
+      frequency: rec.frequency,
+      category_id: categoryId,                 // ← NUEVO
+      account_id: rec.account_id || null,
+      linked_debt_id: rec.linked_debt_id || null,
+      next_due: rec.next_due,
+      notes: rec.notes || null,
+    }
+
+    const { data, error } = await supabase
+      .from('recurring_payments')
+      .insert(payload)
+      .select()
+      .single()
+
     console.log('[MiFinanza] addRecurring result:', { data, error })
     if (!error) await loadData()
     return { data, error }
   }
 
+
   const editRecurring = async (id, changes) => {
+    // Resolver category_id
+    let categoryId = changes.category_id ?? null
+    if (!categoryId && changes.category) {
+      const found = customCategories.find(c => c.key === changes.category)
+      if (found) categoryId = found.id
+    }
+
     const { error } = await supabase.rpc('rpc_update_recurring', {
-      p_rec_id: id, p_name: changes.name || null,
+      p_rec_id: id,
+      p_name: changes.name || null,
       p_amount: changes.amount ? parseFloat(changes.amount) : null,
-      p_frequency: changes.frequency || null, p_category: changes.category || null,
-      p_account_id: changes.account_id || null, p_linked_debt_id: changes.linked_debt_id || null,
-      p_next_due: changes.next_due || null, p_notes: changes.notes || null,
-      p_is_active: changes.is_active ?? null, p_clear_debt: changes.clear_debt || false,
+      p_frequency: changes.frequency || null,
+      p_category_id: categoryId || null,          // ← NUEVO
+      p_account_id: changes.account_id || null,
+      p_linked_debt_id: changes.linked_debt_id || null,
+      p_next_due: changes.next_due || null,
+      p_notes: changes.notes || null,
+      p_is_active: changes.is_active ?? null,
+      p_clear_debt: changes.clear_debt || false,
     })
+
     if (!error) await loadData()
     return { error }
   }
+
 
   const deleteRecurring = async (id) => {
     await supabase.from('recurring_payments').update({ is_active: false }).eq('id', id)
@@ -574,6 +649,7 @@ export function AppProvider({ children }) {
     if (!error) await loadData(); return { error }
   }
 
+  // ── Categorías personalizadas ─────────────────────────────────────────
   const addCategory = async (cat) => {
     if (!isFamilyAdmin) return { error: new Error('Solo el admin puede crear categorías') }
     const { data, error } = await supabase.from('categories').insert({
@@ -621,7 +697,7 @@ export function AppProvider({ children }) {
     onboardingState, signOut, updateProfile, createFamily, joinFamily, reloadProfile,
     assetAccounts, creditAccounts, debts, recurring, txns, payCreditCard,
     goals, kidsGoals, summary, netWorth, dataLoading, filteredTxns,
-    customCategories,
+    customCategories, categoriesByType, categoryColorMap,
     t, lang, setLang, tab, setTab,
     isKid, isOwner, isFamilyAdmin, kids, pendingMembers,
     filterType, setFilterType,
@@ -631,7 +707,6 @@ export function AppProvider({ children }) {
     addTxn, editTxn, deleteTxn,
     addCategory, editCategory, deleteCategory,
     addAccount, editAccount,
-    categoriesByType,
     addDebt, editDebt, deleteDebt, payDebt,
     addRecurring, editRecurring, deleteRecurring, markRecPaid,
     addGoal, editGoal, deleteGoal, depositGoal,
